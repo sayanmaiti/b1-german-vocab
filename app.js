@@ -1,16 +1,32 @@
+// ── Firebase setup ────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCFNktwELCqbndw6Q2zD_yX8jdVHLPDC_I",
+  authDomain: "b1-vocab-1d578.firebaseapp.com",
+  projectId: "b1-vocab-1d578",
+  storageBucket: "b1-vocab-1d578.firebasestorage.app",
+  messagingSenderId: "257430022122",
+  appId: "1:257430022122:web:1d7049dcdaef33ae31f493",
+  measurementId: "G-PCLMEHD8G7"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db   = firebase.firestore();
+const auth = firebase.auth();
+let currentUser = null;
+
 // ── Constants ────────────────────────────────────────────────────────────────
-const STORAGE_KEY = 'b1_vocab_stats';
-const TOTAL_COMBOS = WORDS.length * 2; // each word has DE→EN and EN→DE
-const ARTICLES = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
+const STORAGE_KEY  = 'b1_vocab_stats';
+const TOTAL_COMBOS = WORDS.length * 2;
+const ARTICLES     = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
 
 // ── State ────────────────────────────────────────────────────────────────────
-let stats = {};          // persisted word stats
-let currentWord = null;
-let currentDir = null;   // 'de-en' | 'en-de'
+let stats          = {};
+let currentWord    = null;
+let currentDir     = null;
 let sessionCorrect = 0;
 let sessionAttempts = 0;
 
-// ── Persistence ──────────────────────────────────────────────────────────────
+// ── Persistence (localStorage) ────────────────────────────────────────────────
 function loadStats() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -22,8 +38,65 @@ function loadStats() {
 
 function saveStats() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
+  if (currentUser) {
+    db.collection('users').doc(currentUser.uid)
+      .set({ stats }, { merge: true })
+      .catch(e => console.warn('Firestore save failed:', e));
+  }
 }
 
+// ── Firestore sync ────────────────────────────────────────────────────────────
+async function loadFromFirestore(uid) {
+  try {
+    const doc = await db.collection('users').doc(uid).get();
+    if (doc.exists) {
+      const cloudStats = doc.data().stats || {};
+      // Merge: take max of correct/attempts per key
+      for (const [key, cloudStat] of Object.entries(cloudStats)) {
+        const local = stats[key] || { correct: 0, attempts: 0, lastSeen: 0 };
+        stats[key] = {
+          correct:  Math.max(local.correct  || 0, cloudStat.correct  || 0),
+          attempts: Math.max(local.attempts || 0, cloudStat.attempts || 0),
+          lastSeen: Math.max(local.lastSeen || 0, cloudStat.lastSeen || 0),
+        };
+      }
+      saveStats();
+    }
+  } catch (e) {
+    console.warn('Firestore load failed:', e);
+  }
+}
+
+// ── Auth UI ───────────────────────────────────────────────────────────────────
+function updateAuthUI(user) {
+  const statusEl = document.getElementById('auth-status');
+  const btnEl    = document.getElementById('auth-btn');
+  if (user) {
+    statusEl.textContent = user.displayName || user.email;
+    btnEl.textContent = 'Sign out';
+  } else {
+    statusEl.textContent = '';
+    btnEl.textContent = 'Sign in with Google';
+  }
+}
+
+document.getElementById('auth-btn').addEventListener('click', () => {
+  if (currentUser) {
+    auth.signOut();
+  } else {
+    auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+  }
+});
+
+auth.onAuthStateChanged(user => {
+  currentUser = user;
+  updateAuthUI(user);
+  if (user) {
+    loadFromFirestore(user.uid).then(() => updateScoreBar());
+  }
+});
+
+// ── Stat helpers ──────────────────────────────────────────────────────────────
 function statKey(wordId, dir) {
   return `${wordId}_${dir}`;
 }
@@ -41,16 +114,14 @@ function recordResult(wordId, dir, isCorrect) {
   saveStats();
 }
 
-// ── Priority algorithm ───────────────────────────────────────────────────────
-// Higher value = show sooner.
-// Balances: high-frequency words (40%) + weak/unseen words (60%)
+// ── Priority algorithm ────────────────────────────────────────────────────────
 function priority(word, dir) {
-  const total = WORDS.length;
-  const freqScore = (total - word.rank + 1) / total; // rank 1 → 1.0
-  const stat = getStat(word.id, dir);
+  const total     = WORDS.length;
+  const freqScore = (total - word.rank + 1) / total;
+  const stat      = getStat(word.id, dir);
   const weakScore = stat.attempts > 0
     ? 1 - (stat.correct / stat.attempts)
-    : 0.5; // unseen = neutral weakness
+    : 0.5;
   return 0.4 * freqScore + 0.6 * weakScore;
 }
 
@@ -62,13 +133,11 @@ function pickNext() {
     }
   }
   candidates.sort((a, b) => b.p - a.p);
-
-  // Pick randomly from top 5 to add variety and avoid being too deterministic
   const pool = candidates.slice(0, 5);
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
-// ── Answer checking ──────────────────────────────────────────────────────────
+// ── Answer checking ───────────────────────────────────────────────────────────
 function normalize(s) {
   return s.trim().toLowerCase();
 }
@@ -84,37 +153,44 @@ function stripArticle(s) {
 function isCorrectAnswer(userInput) {
   const user = normalize(userInput);
   if (!user) return false;
-
   if (currentDir === 'de-en') {
-    // Accept any "/" separated variant
     const variants = currentWord.en.split('/').map(v => normalize(v));
     return variants.some(v => v === user);
   } else {
-    // EN → DE: accept with or without article
-    const canonical = normalize(currentWord.de);
-    const withoutArt = normalize(stripArticle(currentWord.de));
+    const canonical   = normalize(currentWord.de);
+    const withoutArt  = normalize(stripArticle(currentWord.de));
     return user === canonical || user === withoutArt;
   }
 }
 
-// ── UI helpers ───────────────────────────────────────────────────────────────
-function show(id)  { document.getElementById(id).classList.remove('hidden'); }
-function hide(id)  { document.getElementById(id).classList.add('hidden'); }
+// ── Speech ────────────────────────────────────────────────────────────────────
+function speakWord() {
+  if (!('speechSynthesis' in window)) return;
+  // Always speak the German word for pronunciation practice
+  const utt = new SpeechSynthesisUtterance(currentWord.de);
+  utt.lang = 'de-DE';
+  utt.rate = 0.9;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utt);
+}
+
+document.getElementById('speak-btn').addEventListener('click', speakWord);
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
 
 function setPhase(phase) {
-  // phase: 'input' | 'show' | 'result'
-  const phases = { 'input': 'input-phase', 'show': 'show-phase', 'result': 'result-phase' };
+  const phases = { input: 'input-phase', show: 'show-phase', result: 'result-phase' };
   for (const [key, elId] of Object.entries(phases)) {
     key === phase ? show(elId) : hide(elId);
   }
 }
 
 function updateScoreBar() {
-  // Session score
   document.getElementById('session-score').textContent =
     `${sessionCorrect} / ${sessionAttempts} correct`;
 
-  // Mastery progress: combos with at least 1 correct answer
   let mastered = 0;
   for (const word of WORDS) {
     for (const dir of ['de-en', 'en-de']) {
@@ -125,14 +201,13 @@ function updateScoreBar() {
   document.getElementById('progress-bar').style.width = `${pct}%`;
   document.getElementById('progress-label').textContent = `${pct}% mastered`;
 
-  // Footer detail
   const totalAttempts = Object.values(stats)
     .reduce((sum, s) => sum + (s.attempts || 0), 0);
   document.getElementById('stats-detail').textContent =
     `${mastered} / ${TOTAL_COMBOS} combos mastered · ${totalAttempts} total attempts`;
 }
 
-// ── Core flow ────────────────────────────────────────────────────────────────
+// ── Core flow ─────────────────────────────────────────────────────────────────
 function nextCard() {
   const picked = pickNext();
   currentWord = picked.word;
@@ -140,7 +215,6 @@ function nextCard() {
 
   document.getElementById('direction').innerHTML =
     currentDir === 'de-en' ? 'DE &rarr; EN' : 'EN &rarr; DE';
-
   document.getElementById('word').textContent =
     currentDir === 'de-en' ? currentWord.de : currentWord.en;
 
@@ -161,7 +235,6 @@ function handleCheck() {
 
   const correctText = currentDir === 'de-en' ? currentWord.en : currentWord.de;
   const msgEl = document.getElementById('result-message');
-
   if (correct) {
     msgEl.textContent = '✓ Correct!';
     msgEl.className = 'result-message correct';
@@ -171,7 +244,6 @@ function handleCheck() {
     msgEl.className = 'result-message wrong';
     document.getElementById('result-answer').textContent = `Answer: ${correctText}`;
   }
-
   setPhase('result');
 }
 
@@ -189,7 +261,7 @@ function handleSelfRate(knew) {
   nextCard();
 }
 
-// ── Event listeners ──────────────────────────────────────────────────────────
+// ── Event listeners ───────────────────────────────────────────────────────────
 document.getElementById('check-btn').addEventListener('click', handleCheck);
 document.getElementById('show-btn').addEventListener('click', handleShowMe);
 document.getElementById('knew-btn').addEventListener('click', () => handleSelfRate(true));
@@ -203,6 +275,10 @@ document.getElementById('answer-input').addEventListener('keydown', (e) => {
 document.getElementById('reset-btn').addEventListener('click', () => {
   if (confirm('Reset all progress? This cannot be undone.')) {
     localStorage.removeItem(STORAGE_KEY);
+    if (currentUser) {
+      db.collection('users').doc(currentUser.uid).delete()
+        .catch(e => console.warn('Firestore delete failed:', e));
+    }
     stats = {};
     sessionCorrect = 0;
     sessionAttempts = 0;
@@ -211,7 +287,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   }
 });
 
-// ── Boot ─────────────────────────────────────────────────────────────────────
+// ── Boot ──────────────────────────────────────────────────────────────────────
 loadStats();
 updateScoreBar();
 nextCard();

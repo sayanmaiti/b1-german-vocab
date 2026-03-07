@@ -16,6 +16,11 @@
       <div class="session-score" id="session-score">0 / 0 correct</div>
     </header>
 
+    <div class="auth-bar" id="auth-bar">
+      <span class="auth-status" id="auth-status"></span>
+      <button class="auth-btn" id="auth-btn">Sign in with Google</button>
+    </div>
+
     <div class="progress-row">
       <div class="progress-bar-wrap">
         <div class="progress-bar" id="progress-bar"></div>
@@ -25,7 +30,10 @@
 
     <div class="card" id="card">
       <div class="direction-badge" id="direction">DE &rarr; EN</div>
-      <div class="word" id="word">Loading&hellip;</div>
+      <div class="word-row">
+        <div class="word" id="word">Loading&hellip;</div>
+        <button class="speak-btn" id="speak-btn" title="Pronounce German word">&#128266;</button>
+      </div>
 
       <!-- Input phase -->
       <div id="input-phase">
@@ -67,6 +75,11 @@
       <button class="reset-btn" id="reset-btn">Reset Progress</button>
     </div>
   </div>
+
+  <!-- Firebase CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <script src="words.js"></script>
   <script src="app.js"></script>
