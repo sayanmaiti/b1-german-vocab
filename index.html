@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>B1 German Vocab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>B1 Deutsch</h1>
+      <div class="session-score" id="session-score">0 / 0 correct</div>
+    </header>
+
+    <div class="progress-row">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <span class="progress-label" id="progress-label">0% mastered</span>
+    </div>
+
+    <div class="card" id="card">
+      <div class="direction-badge" id="direction">DE &rarr; EN</div>
+      <div class="word" id="word">Loading&hellip;</div>
+
+      <!-- Input phase -->
+      <div id="input-phase">
+        <input
+          type="text"
+          id="answer-input"
+          placeholder="Type your answer&hellip;"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+        >
+        <div class="btn-row">
+          <button class="btn-primary" id="check-btn">Check Answer</button>
+          <button class="btn-secondary" id="show-btn">Show Me</button>
+        </div>
+      </div>
+
+      <!-- Show-me phase: reveal answer + self-rate -->
+      <div id="show-phase" class="hidden">
+        <div class="revealed-answer" id="revealed-answer"></div>
+        <p class="self-rate-prompt">Did you know it?</p>
+        <div class="btn-row">
+          <button class="btn-knew" id="knew-btn">&#10003; I knew it</button>
+          <button class="btn-didnt" id="didnt-btn">&#10007; I didn&apos;t</button>
+        </div>
+      </div>
+
+      <!-- Result phase: after check -->
+      <div id="result-phase" class="hidden">
+        <div class="result-message" id="result-message"></div>
+        <div class="result-answer" id="result-answer"></div>
+        <button class="btn-primary" id="next-btn">Next &rarr;</button>
+      </div>
+    </div>
+
+    <div class="stats-footer">
+      <span id="stats-detail">Loading stats&hellip;</span>
+      <button class="reset-btn" id="reset-btn">Reset Progress</button>
+    </div>
+  </div>
+
+  <script src="words.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

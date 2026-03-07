@@ -1,0 +1,323 @@
+/* ── Reset ─────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Base ──────────────────────────────────────── */
+body {
+  font-family: 'Nunito', sans-serif;
+  background: #F0F2F5;
+  color: #1C1E21;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+/* ── App shell ─────────────────────────────────── */
+.app {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* ── Header ────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 900;
+  color: #1877F2;
+  letter-spacing: -0.5px;
+}
+
+.session-score {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1877F2;
+  background: #E7F3FF;
+  padding: 6px 14px;
+  border-radius: 20px;
+}
+
+/* ── Progress bar ──────────────────────────────── */
+.progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.progress-bar-wrap {
+  flex: 1;
+  height: 10px;
+  background: #DAE0E8;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: #1877F2;
+  border-radius: 99px;
+  width: 0%;
+  transition: width 0.5s ease;
+}
+
+.progress-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #65676B;
+  white-space: nowrap;
+}
+
+/* ── Card ──────────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 36px 32px 32px;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.09);
+  text-align: center;
+  min-height: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.direction-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #1877F2;
+  background: #E7F3FF;
+  padding: 4px 12px;
+  border-radius: 99px;
+  margin-bottom: 22px;
+  align-self: center;
+}
+
+.word {
+  font-size: 38px;
+  font-weight: 900;
+  color: #1C1E21;
+  line-height: 1.15;
+  margin-bottom: 32px;
+  word-break: break-word;
+}
+
+/* ── Input phase ───────────────────────────────── */
+#input-phase input {
+  width: 100%;
+  padding: 14px 16px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  border: 2.5px solid #E4E6EB;
+  border-radius: 12px;
+  outline: none;
+  transition: border-color 0.18s;
+  margin-bottom: 14px;
+  color: #1C1E21;
+}
+
+#input-phase input:focus {
+  border-color: #1877F2;
+}
+
+#input-phase input::placeholder {
+  color: #BCC0C4;
+  font-weight: 600;
+}
+
+/* ── Button row ────────────────────────────────── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+/* Primary button */
+.btn-primary {
+  flex: 1;
+  padding: 14px;
+  background: #1877F2;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.1s;
+}
+
+.btn-primary:hover {
+  background: #1466D8;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+/* Secondary button */
+.btn-secondary {
+  flex: 1;
+  padding: 14px;
+  background: #E7F3FF;
+  color: #1877F2;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.1s;
+}
+
+.btn-secondary:hover {
+  background: #D2E4FF;
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+/* ── Show-me phase ─────────────────────────────── */
+#show-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.revealed-answer {
+  font-size: 28px;
+  font-weight: 900;
+  color: #1877F2;
+}
+
+.self-rate-prompt {
+  font-size: 14px;
+  font-weight: 700;
+  color: #65676B;
+}
+
+.btn-knew {
+  flex: 1;
+  padding: 14px;
+  background: #E6F4EA;
+  color: #1E7E34;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.1s;
+}
+
+.btn-knew:hover {
+  background: #C8E6C9;
+}
+
+.btn-knew:active {
+  transform: scale(0.97);
+}
+
+.btn-didnt {
+  flex: 1;
+  padding: 14px;
+  background: #FDECEA;
+  color: #C62828;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Nunito', sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.1s;
+}
+
+.btn-didnt:hover {
+  background: #FFCDD2;
+}
+
+.btn-didnt:active {
+  transform: scale(0.97);
+}
+
+/* ── Result phase ──────────────────────────────── */
+#result-phase {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.result-message {
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.result-message.correct {
+  color: #1E7E34;
+}
+
+.result-message.wrong {
+  color: #C62828;
+}
+
+.result-answer {
+  font-size: 17px;
+  font-weight: 600;
+  color: #65676B;
+  margin-bottom: 14px;
+}
+
+#result-phase .btn-primary {
+  width: 100%;
+}
+
+/* ── Stats footer ──────────────────────────────── */
+.stats-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 0 4px;
+}
+
+#stats-detail {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8A8D91;
+}
+
+.reset-btn {
+  font-family: 'Nunito', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #8A8D91;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.reset-btn:hover {
+  color: #C62828;
+}
+
+/* ── Utility ───────────────────────────────────── */
+.hidden {
+  display: none !important;
+}
