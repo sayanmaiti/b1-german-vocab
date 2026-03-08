@@ -164,14 +164,31 @@ function isCorrectAnswer(userInput) {
 }
 
 // ── Speech ────────────────────────────────────────────────────────────────────
+function getGermanVoice() {
+  const voices = speechSynthesis.getVoices();
+  // Prefer de-DE, fall back to any German voice
+  return voices.find(v => v.lang === 'de-DE')
+      || voices.find(v => v.lang.startsWith('de'))
+      || null;
+}
+
 function speakWord() {
   if (!('speechSynthesis' in window)) return;
-  // Always speak the German word for pronunciation practice
-  const utt = new SpeechSynthesisUtterance(currentWord.de);
-  utt.lang = 'de-DE';
-  utt.rate = 0.9;
-  speechSynthesis.cancel();
-  speechSynthesis.speak(utt);
+  const say = () => {
+    const utt = new SpeechSynthesisUtterance(currentWord.de);
+    utt.lang = 'de-DE';
+    utt.rate = 0.85;
+    utt.pitch = 1;
+    const voice = getGermanVoice();
+    if (voice) utt.voice = voice;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utt);
+  };
+  if (speechSynthesis.getVoices().length) {
+    say();
+  } else {
+    speechSynthesis.addEventListener('voiceschanged', say, { once: true });
+  }
 }
 
 document.getElementById('speak-btn').addEventListener('click', speakWord);
