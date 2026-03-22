@@ -1,6 +1,6 @@
 // ── Firebase setup ────────────────────────────────────────────────────────────
 const firebaseConfig = {
-  apiKey: "AIzaSyCFNktwELCqbndw6Q2zD_yX8jdVHLPDC_I",
+  apiKey: "AIzaSyA4qlWdeY2HLDZ7SN8tTQPf_-vWyZoppls",
   authDomain: "b1-vocab-1d578.firebaseapp.com",
   projectId: "b1-vocab-1d578",
   storageBucket: "b1-vocab-1d578.firebasestorage.app",
