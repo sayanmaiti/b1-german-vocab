@@ -18,6 +18,12 @@ let currentUser = null;
 const STORAGE_KEY  = 'b1_vocab_stats';
 const TOTAL_COMBOS = WORDS.length * 2;
 const ARTICLES     = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
+const DIRS         = ['de-en', 'en-de'];
+const MINUTE       = 60 * 1000;
+const DAY          = 24 * 60 * MINUTE;
+const MAX_INTERVAL = 180;          // days
+const RETRY_DELAY  = 2 * MINUTE;   // a missed card comes back after ~2 minutes
+const EN_DE_DELAY  = 10 * MINUTE;  // EN→DE is introduced 10+ minutes after DE→EN was answered correctly
 
 // ── State ────────────────────────────────────────────────────────────────────
 let stats          = {};
@@ -25,6 +31,7 @@ let currentWord    = null;
 let currentDir     = null;
 let sessionCorrect = 0;
 let sessionAttempts = 0;
+let lastKey        = null;
 
 // ── Persistence (localStorage) ────────────────────────────────────────────────
 function loadStats() {
@@ -53,8 +60,10 @@ async function loadFromFirestore(uid) {
       const cloudStats = doc.data().stats || {};
       // Merge: take max of correct/attempts per key
       for (const [key, cloudStat] of Object.entries(cloudStats)) {
-        const local = stats[key] || { correct: 0, attempts: 0, lastSeen: 0 };
+        const local  = stats[key] || { correct: 0, attempts: 0, lastSeen: 0 };
+        const latest = (cloudStat.lastSeen || 0) > (local.lastSeen || 0) ? cloudStat : local;
         stats[key] = {
+          ...latest,
           correct:  Math.max(local.correct  || 0, cloudStat.correct  || 0),
           attempts: Math.max(local.attempts || 0, cloudStat.attempts || 0),
           lastSeen: Math.max(local.lastSeen || 0, cloudStat.lastSeen || 0),
@@ -108,38 +117,111 @@ function getStat(wordId, dir) {
 function recordResult(wordId, dir, isCorrect) {
   const key = statKey(wordId, dir);
   if (!stats[key]) stats[key] = { correct: 0, attempts: 0 };
-  stats[key].attempts += 1;
-  if (isCorrect) stats[key].correct += 1;
-  stats[key].lastSeen = Date.now();
+  const s = stats[key];
+  s.attempts += 1;
+  if (isCorrect) s.correct += 1;
+  s.lastSeen = Date.now();
+  schedule(s, isCorrect);
   saveStats();
 }
 
-// ── Priority algorithm ────────────────────────────────────────────────────────
-function priority(word, dir) {
-  const total     = WORDS.length;
-  const freqScore = (total - word.rank + 1) / total;
-  const stat      = getStat(word.id, dir);
-  const weakScore = stat.attempts > 0
-    ? 1 - (stat.correct / stat.attempts)
-    : 0.5;
-  return 0.4 * freqScore + 0.6 * weakScore;
+// ── Spaced repetition ─────────────────────────────────────────────────────────
+// Each word/direction has an interval (days) and a due time.
+// Correct: the interval grows (x ease, about 2.5). Wrong: it resets and the card returns in ~2 minutes.
+function schedule(s, isCorrect) {
+  const now  = Date.now();
+  const ease = s.ease || 2.5;
+  if (isCorrect) {
+    const prev = s.interval || 0;
+    if (prev === 0) {
+      s.interval = s.attempts <= 1 ? 3 : 1;   // known on first sight: 3 days; just relearned: 1 day
+    } else {
+      s.interval = Math.min(MAX_INTERVAL, Math.round(prev * ease * 10) / 10);
+    }
+    s.ease = Math.min(3.0, ease + 0.05);
+    s.due  = now + s.interval * DAY;
+  } else {
+    s.interval = 0;
+    s.ease     = Math.max(1.3, ease - 0.2);
+    s.due      = now + RETRY_DELAY;
+  }
 }
 
+function dueTime(s) {
+  // Progress saved by the old version has no due time: treat it as due for review.
+  return s.due !== undefined ? s.due : (s.lastSeen || 0);
+}
+
+function isSeen(wordId, dir) {
+  const s = stats[statKey(wordId, dir)];
+  return !!(s && s.attempts > 0);
+}
+
+function countDue(now = Date.now()) {
+  let n = 0;
+  for (const s of Object.values(stats)) {
+    if (s.attempts > 0 && dueTime(s) <= now) n++;
+  }
+  return n;
+}
+
+// Order: 1) cards that are due, most overdue first; 2) new cards in rank order
+// (high-frequency words first; EN→DE once DE→EN is known); 3) the card due soonest.
 function pickNext() {
-  const candidates = [];
+  const now = Date.now();
+  const due = [];
+  const upcoming = [];
   for (const word of WORDS) {
-    for (const dir of ['de-en', 'en-de']) {
-      candidates.push({ word, dir, p: priority(word, dir) });
+    for (const dir of DIRS) {
+      const s = stats[statKey(word.id, dir)];
+      if (!s || !s.attempts) continue;
+      const d = dueTime(s);
+      (d <= now ? due : upcoming).push({ word, dir, d });
     }
   }
-  candidates.sort((a, b) => b.p - a.p);
-  const pool = candidates.slice(0, 5);
-  return pool[Math.floor(Math.random() * pool.length)];
+
+  const notLast = c => statKey(c.word.id, c.dir) !== lastKey;
+
+  if (due.length) {
+    due.sort((a, b) => a.d - b.d);
+    const pool = due.filter(notLast).slice(0, 3);
+    if (pool.length) return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  for (const word of WORDS) {           // WORDS is sorted by rank
+    if (!isSeen(word.id, 'de-en')) return { word, dir: 'de-en' };
+    const deEn = getStat(word.id, 'de-en');
+    if (!isSeen(word.id, 'en-de') && deEn.correct > 0 && now - (deEn.lastSeen || 0) > EN_DE_DELAY) {
+      return { word, dir: 'en-de' };
+    }
+  }
+
+  const rest = upcoming.concat(due).filter(notLast).sort((a, b) => a.d - b.d);
+  return rest[0] || due[0] || { word: WORDS[0], dir: 'de-en' };
 }
 
 // ── Answer checking ───────────────────────────────────────────────────────────
 function normalize(s) {
-  return s.trim().toLowerCase();
+  return s.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+// Loosen an English answer: drop "(...)", "to ", "the ", "a ", trailing punctuation.
+function looseEn(s) {
+  return normalize(s)
+    .replace(/\(.*?\)/g, '')
+    .replace(/^(to|the|a|an) /, '')
+    .replace(/[.!?]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Loosen a German answer: drop the article, "(sich)"/"sich", and "(...)".
+function looseDe(s) {
+  return normalize(stripArticle(normalize(s)))
+    .replace(/^\(sich\) |^sich /, '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function stripArticle(s) {
@@ -154,12 +236,21 @@ function isCorrectAnswer(userInput) {
   const user = normalize(userInput);
   if (!user) return false;
   if (currentDir === 'de-en') {
-    const variants = currentWord.en.split('/').map(v => normalize(v));
-    return variants.some(v => v === user);
+    const variants = currentWord.en.split('/').flatMap(v => {
+      const parts = v.split('=');             // e.g. "es gibt = there is"
+      return parts.map(p => looseEn(p));
+    });
+    return variants.includes(looseEn(user)) || variants.includes(user);
   } else {
-    const canonical   = normalize(currentWord.de);
-    const withoutArt  = normalize(stripArticle(currentWord.de));
-    return user === canonical || user === withoutArt;
+    // Without an article: the word alone is enough. With an article: it must be the right one.
+    const typedArticle = ARTICLES.some(a => user.startsWith(a));
+    const variants = currentWord.de.split('/').map(v => v.trim());
+    return variants.some(v => {
+      if (user === normalize(v)) return true;
+      const article = ARTICLES.find(a => normalize(v).startsWith(a));
+      if (typedArticle && article && !user.startsWith(article)) return false;
+      return looseDe(user) === looseDe(v);
+    });
   }
 }
 
@@ -208,20 +299,20 @@ function updateScoreBar() {
   document.getElementById('session-score').textContent =
     `${sessionCorrect} / ${sessionAttempts} correct`;
 
-  let mastered = 0;
+  // "Learned" = answered correctly at least once and not currently failed.
+  let learned = 0;
   for (const word of WORDS) {
-    for (const dir of ['de-en', 'en-de']) {
-      if (getStat(word.id, dir).correct > 0) mastered++;
+    for (const dir of DIRS) {
+      const s = getStat(word.id, dir);
+      if (s.correct > 0 && (s.interval === undefined || s.interval > 0)) learned++;
     }
   }
-  const pct = Math.round((mastered / TOTAL_COMBOS) * 100);
+  const pct = Math.round((learned / TOTAL_COMBOS) * 100);
   document.getElementById('progress-bar').style.width = `${pct}%`;
-  document.getElementById('progress-label').textContent = `${pct}% mastered`;
+  document.getElementById('progress-label').textContent = `${pct}% learned`;
 
-  const totalAttempts = Object.values(stats)
-    .reduce((sum, s) => sum + (s.attempts || 0), 0);
   document.getElementById('stats-detail').textContent =
-    `${mastered} / ${TOTAL_COMBOS} combos mastered · ${totalAttempts} total attempts`;
+    `${learned} / ${TOTAL_COMBOS} learned · ${countDue()} due for review`;
 }
 
 // ── Core flow ─────────────────────────────────────────────────────────────────
@@ -235,9 +326,38 @@ function nextCard() {
   document.getElementById('word').textContent =
     currentDir === 'de-en' ? currentWord.de : currentWord.en;
 
+  // Forms are a hint on DE→EN; on EN→DE they would give the answer away.
+  const formsEl = document.getElementById('forms');
+  formsEl.textContent = currentDir === 'de-en' && currentWord.forms ? `(${currentWord.forms})` : '';
+  document.getElementById('speak-btn').style.visibility = currentDir === 'de-en' ? 'visible' : 'hidden';
+  lastKey = statKey(currentWord.id, currentDir);
+  hide('details');
+
   document.getElementById('answer-input').value = '';
   setPhase('input');
   document.getElementById('answer-input').focus();
+}
+
+function fullGerman(word) {
+  return word.forms ? `${word.de} (${word.forms})` : word.de;
+}
+
+function correctAnswerText() {
+  return currentDir === 'de-en' ? currentWord.en : fullGerman(currentWord);
+}
+
+// Show the example sentence, the sentence from the telc mock and the exam parts.
+function showDetails() {
+  const set = (id, text) => {
+    const el = document.getElementById(id);
+    el.textContent = text || '';
+    el.classList.toggle('hidden', !text);
+  };
+  set('detail-example', currentWord.ex);
+  set('detail-exam', currentWord.exam ? `telc mock: ${currentWord.exam}` : '');
+  set('detail-parts', currentWord.parts ? `In the exam: ${currentWord.parts.join(', ')}` : '');
+  document.getElementById('speak-btn').style.visibility = 'visible';
+  show('details');
 }
 
 function handleCheck() {
@@ -250,7 +370,7 @@ function handleCheck() {
   if (correct) sessionCorrect++;
   updateScoreBar();
 
-  const correctText = currentDir === 'de-en' ? currentWord.en : currentWord.de;
+  const correctText = correctAnswerText();
   const msgEl = document.getElementById('result-message');
   if (correct) {
     msgEl.textContent = '✓ Correct!';
@@ -261,12 +381,13 @@ function handleCheck() {
     msgEl.className = 'result-message wrong';
     document.getElementById('result-answer').textContent = `Answer: ${correctText}`;
   }
+  showDetails();
   setPhase('result');
 }
 
 function handleShowMe() {
-  const correctText = currentDir === 'de-en' ? currentWord.en : currentWord.de;
-  document.getElementById('revealed-answer').textContent = correctText;
+  document.getElementById('revealed-answer').textContent = correctAnswerText();
+  showDetails();
   setPhase('show');
 }
 
