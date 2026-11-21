@@ -542,6 +542,16 @@ function updateScoreBar() {
 
 // ── Milestones page ───────────────────────────────────────────────────────────
 // A list of every milestone; open one to glance at its 50 words, German and English.
+// Short labels for word types.
+const POS_LABEL = {
+  noun: 'noun', verb: 'verb', adjective: 'adj.', adverb: 'adv.', preposition: 'prep.',
+  conjunction: 'conj.', pronoun: 'pron.', determiner: 'det.', number: 'num.',
+  particle: 'particle', interjection: 'interj.', prefix: 'prefix', phrase: 'phrase',
+};
+function posLabel(word) {
+  return word.pos && word.pos !== 'other' ? (POS_LABEL[word.pos] || word.pos) : '';
+}
+
 function wordStatus(word) {
   if (isWordLearned(word)) return 'learned';
   if (DIRS.some(dir => isSeen(word.id, dir))) return 'started';
@@ -549,14 +559,21 @@ function wordStatus(word) {
 }
 
 function renderMilestoneWords(i) {
-  return '<table class="ms-words"><tbody>' + MILESTONES[i].map(w => {
-    const forms = w.forms ? `<span class="ms-forms">${escapeHtml(w.forms)}</span>` : '';
-    return `<tr class="ms-${wordStatus(w)}">` +
-             `<td class="ms-dot" title="${wordStatus(w)}"></td>` +
-             `<td class="ms-de">${escapeHtml(w.de)}${forms}</td>` +
-             `<td class="ms-en">${escapeHtml(w.en)}</td>` +
-           `</tr>`;
-  }).join('') + '</tbody></table>';
+  return '<div class="ms-words">' + MILESTONES[i].map(w => {
+    const pos   = posLabel(w);
+    const forms = w.forms ? `<div class="ms-forms">${escapeHtml(w.forms)}</div>` : '';
+    const ex    = w.ex ? `<div class="ms-ex">${highlightWord(w.ex, w)}</div>` : '';
+    return `<div class="ms-row ms-${wordStatus(w)}">` +
+             `<span class="ms-dot" title="${wordStatus(w)}"></span>` +
+             `<div class="ms-left">` +
+               `<span class="ms-de">${escapeHtml(w.de)}</span>` +
+               (pos ? ` <span class="pos-chip">${pos}</span>` : '') +
+               forms +
+             `</div>` +
+             `<div class="ms-en">${escapeHtml(w.en)}</div>` +
+             ex +
+           `</div>`;
+  }).join('') + '</div>';
 }
 
 function renderMilestones() {
@@ -617,6 +634,9 @@ function nextCard() {
 
   document.getElementById('direction').innerHTML =
     currentDir === 'de-en' ? 'DE &rarr; EN' : 'EN &rarr; DE';
+  const posEl = document.getElementById('pos');
+  posEl.textContent = posLabel(currentWord);
+  posEl.classList.toggle('hidden', !posEl.textContent);
   document.getElementById('word').textContent =
     currentDir === 'de-en' ? currentWord.de : currentWord.en;
 
