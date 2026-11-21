@@ -510,3 +510,22 @@ h1 {
   margin-bottom: 12px;
   text-align: center;
 }
+
+/* ── Milestones ────────────────────────────────── */
+.milestone-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1C1E21;
+  margin-bottom: 6px;
+}
+
+.milestone-banner {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1E8E3E;
+  background: #E6F4EA;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: -10px 0 16px;
+  text-align: center;
+}
