@@ -16,7 +16,7 @@ let currentUser = null;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STORAGE_KEY  = 'b1_vocab_stats';
-const TOTAL_COMBOS = WORDS.length * 2;
+const TOTAL_WORDS  = WORDS.length;
 const ARTICLES     = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
 const DIRS         = ['de-en', 'en-de'];
 const MINUTE       = 60 * 1000;
@@ -75,6 +75,16 @@ async function loadFromFirestore(uid) {
     console.warn('Firestore load failed:', e);
   }
 }
+
+// Pull the latest cloud progress when the app comes back into view, so a phone and a
+// laptop stay in step without a reload.
+let lastCloudPull = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !currentUser) return;
+  if (Date.now() - lastCloudPull < 30 * 1000) return;
+  lastCloudPull = Date.now();
+  loadFromFirestore(currentUser.uid).then(() => updateScoreBar());
+});
 
 // ── Auth UI ───────────────────────────────────────────────────────────────────
 function updateAuthUI(user) {
@@ -299,20 +309,22 @@ function updateScoreBar() {
   document.getElementById('session-score').textContent =
     `${sessionCorrect} / ${sessionAttempts} correct`;
 
-  // "Learned" = answered correctly at least once and not currently failed.
+  // A word counts as learned when both directions (DE→EN and EN→DE) have been
+  // answered correctly and neither is currently failed.
+  const known = (id, dir) => {
+    const s = getStat(id, dir);
+    return s.correct > 0 && (s.interval === undefined || s.interval > 0);
+  };
   let learned = 0;
   for (const word of WORDS) {
-    for (const dir of DIRS) {
-      const s = getStat(word.id, dir);
-      if (s.correct > 0 && (s.interval === undefined || s.interval > 0)) learned++;
-    }
+    if (DIRS.every(dir => known(word.id, dir))) learned++;
   }
-  const pct = Math.round((learned / TOTAL_COMBOS) * 100);
+  const pct = Math.round((learned / TOTAL_WORDS) * 100);
   document.getElementById('progress-bar').style.width = `${pct}%`;
   document.getElementById('progress-label').textContent = `${pct}% learned`;
 
   document.getElementById('stats-detail').textContent =
-    `${learned} / ${TOTAL_COMBOS} learned · ${countDue()} due for review`;
+    `${learned.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned · ${countDue()} due for review`;
 }
 
 // ── Core flow ─────────────────────────────────────────────────────────────────
