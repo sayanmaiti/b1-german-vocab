@@ -19,10 +19,10 @@ const STORAGE_KEY  = 'b1_vocab_stats';
 const TOTAL_WORDS  = WORDS.length;
 
 // ── Milestones ────────────────────────────────────────────────────────────────
-// The word list is split into groups of 50 by frequency rank
-// (milestone 1 = the 50 most common words). New words come only from the
+// The word list is split into groups of 30 by frequency rank
+// (milestone 1 = the 30 most common words). New words come only from the
 // current milestone; the next unlocks once 80% of the current one is learned.
-const MILESTONE_SIZE   = 50;
+const MILESTONE_SIZE   = 30;
 const MILESTONE_UNLOCK = 0.8;
 const MILESTONES = (() => {
   const groups = [];
