@@ -529,3 +529,155 @@ h1 {
   margin: -10px 0 16px;
   text-align: center;
 }
+
+/* ── Header button: switch between practice and milestones ─ */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.view-btn {
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1877F2;
+  background: #FFFFFF;
+  border: 2px solid #D2E4FF;
+  border-radius: 20px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.view-btn:hover { background: #E7F3FF; }
+
+/* ── Milestones page ───────────────────────────── */
+.ms-summary {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1C1E21;
+  margin: 4px 0 8px;
+}
+
+.ms-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #65676B;
+  margin-bottom: 12px;
+}
+
+.ms-legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.ms-key, .ms-dot::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.ms-key-learned, .ms-learned .ms-dot::before { background: #1E8E3E; }
+.ms-key-started, .ms-started .ms-dot::before { background: #F9AB00; }
+.ms-key-new,     .ms-new .ms-dot::before     { background: #DAE0E8; }
+
+.ms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 24px;
+}
+
+.ms-item {
+  background: #FFFFFF;
+  border-radius: 14px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.ms-item summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    "name  range chip"
+    "bar   bar   count";
+  align-items: center;
+  gap: 6px 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ms-item summary::-webkit-details-marker { display: none; }
+
+.ms-name  { grid-area: name;  font-size: 15px; font-weight: 800; color: #1C1E21; }
+.ms-range { grid-area: range; font-size: 12px; font-weight: 600; color: #8A8D91; }
+.ms-count { grid-area: count; font-size: 12px; font-weight: 700; color: #65676B; }
+
+.ms-chip {
+  grid-area: chip;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+
+.ms-done    .ms-chip { color: #1E8E3E; background: #E6F4EA; }
+.ms-current .ms-chip { color: #1877F2; background: #E7F3FF; }
+.ms-locked  .ms-chip { color: #8A8D91; background: #F0F2F5; }
+
+.ms-current { box-shadow: 0 0 0 2px #1877F2, 0 1px 6px rgba(0, 0, 0, 0.06); }
+
+.ms-bar {
+  grid-area: bar;
+  height: 6px;
+  background: #EDF0F3;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ms-bar span {
+  display: block;
+  height: 100%;
+  background: #1877F2;
+  border-radius: 99px;
+}
+
+.ms-done .ms-bar span { background: #1E8E3E; }
+
+.ms-body { border-top: 1px solid #EDF0F3; }
+.ms-body:empty { display: none; }
+
+.ms-words {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.ms-words tr + tr td { border-top: 1px solid #F3F4F6; }
+
+.ms-words td {
+  padding: 7px 8px;
+  vertical-align: top;
+}
+
+.ms-dot { width: 22px; padding-left: 14px !important; padding-top: 12px !important; }
+
+.ms-de {
+  width: 50%;
+  font-weight: 700;
+  color: #1C1E21;
+}
+
+.ms-forms {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8A8D91;
+}
+
+.ms-en {
+  color: #3A3B3C;
+  padding-right: 14px !important;
+}
