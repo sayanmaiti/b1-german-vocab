@@ -305,6 +305,22 @@ function highlightWord(sentence, word) {
   });
 }
 
+// The example sentence, word by word, with a small English gloss under each word
+// (glosses are worked out in advance in words.js as "exg", one per word).
+function renderExample(word) {
+  const chunks = word.ex.trim().split(/\s+/);
+  const glosses = word.exg && word.exg.length === chunks.length ? word.exg : null;
+  if (!glosses) return highlightWord(word.ex, word);
+  return chunks.map((chunk, i) => {
+    const de = highlightWord(chunk, word);
+    const isTarget = de.includes('<strong>');
+    return `<span class="w${isTarget ? ' target' : ''}">` +
+             `<span class="w-de">${de}</span>` +
+             `<span class="w-en">${escapeHtml(glosses[i] || '')}</span>` +
+           `</span>`;
+  }).join(' ');
+}
+
 // ── Answer checking ───────────────────────────────────────────────────────────
 function normalize(s) {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -461,7 +477,7 @@ function showDetails() {
     el.classList.toggle('hidden', !text);
   };
   const exEl = document.getElementById('detail-example');
-  exEl.innerHTML = currentWord.ex ? highlightWord(currentWord.ex, currentWord) : '';
+  exEl.innerHTML = currentWord.ex ? renderExample(currentWord) : '';
   exEl.classList.toggle('hidden', !currentWord.ex);
   document.getElementById('speak-btn').style.visibility = 'visible';
   show('details');
