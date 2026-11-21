@@ -416,11 +416,90 @@ h1 {
 
 .detail-example {
   color: #1C1E21;
-  font-style: italic;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: flex-start;
+}
+
+/* One word of the example sentence with its gloss underneath */
+.w {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.w-de {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.w-en {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #8A8D91;
+  min-height: 1.2em;
+}
+
+.detail-example strong {
+  font-weight: 900;
+  color: #1877F2;
+}
+
+.w.target .w-en {
+  color: #1877F2;
+  font-weight: 800;
 }
 
 
-/* ── Sign-in error message ─────────────────────── */
+/* ── Email-link sign-in panel ──────────────────── */
+.login-panel {
+  background: #FFFFFF;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.login-prompt {
+  font-size: 13px;
+  font-weight: 600;
+  color: #65676B;
+  margin-bottom: 10px;
+}
+
+.login-row {
+  display: flex;
+  gap: 8px;
+}
+
+.login-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: 'Nunito', sans-serif;
+  font-size: 16px;
+  padding: 10px 12px;
+  border: 2px solid #DAE0E8;
+  border-radius: 10px;
+  outline: none;
+}
+
+.login-row input:focus { border-color: #1877F2; }
+
+.login-row .btn-primary {
+  width: auto;
+  flex: none;
+  padding: 10px 14px;
+  font-size: 14px;
+}
+
+/* ── Sign-in messages ──────────────────────────── */
+.auth-message.info {
+  color: #1E8E3E;
+  background: #E6F4EA;
+}
+
 .auth-message {
   font-size: 13px;
   font-weight: 600;
