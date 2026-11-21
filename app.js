@@ -552,6 +552,18 @@ function posLabel(word) {
   return word.pos && word.pos !== 'other' ? (POS_LABEL[word.pos] || word.pos) : '';
 }
 
+// Case a preposition takes: Akk, Dativ, Wechsel (Akk for movement, Dativ for location) or Genitiv.
+const CASE_TITLE = {
+  Akk:     'Always followed by the accusative',
+  Dativ:   'Always followed by the dative',
+  Wechsel: 'Two-way: accusative for movement (wohin?), dative for location (wo?)',
+  Genitiv: 'Followed by the genitive (often the dative in everyday speech)',
+};
+function caseChip(word, extraClass = '') {
+  if (!word.case) return '';
+  return `<span class="case-chip case-${word.case.toLowerCase()} ${extraClass}" title="${CASE_TITLE[word.case]}">${word.case}</span>`;
+}
+
 function wordStatus(word) {
   if (isWordLearned(word)) return 'learned';
   if (DIRS.some(dir => isSeen(word.id, dir))) return 'started';
@@ -568,6 +580,7 @@ function renderMilestoneWords(i) {
              `<div class="ms-left">` +
                `<span class="ms-de">${escapeHtml(w.de)}</span>` +
                (pos ? ` <span class="pos-chip">${pos}</span>` : '') +
+               (w.case ? ' ' + caseChip(w) : '') +
                forms +
              `</div>` +
              `<div class="ms-en">${escapeHtml(w.en)}</div>` +
@@ -637,6 +650,9 @@ function nextCard() {
   const posEl = document.getElementById('pos');
   posEl.textContent = posLabel(currentWord);
   posEl.classList.toggle('hidden', !posEl.textContent);
+  // Prepositions also show the case they take (shown in both directions).
+  document.getElementById('case').outerHTML =
+    caseChip(currentWord, 'case-chip-card').replace('<span ', '<span id="case" ') || '<span id="case" class="hidden"></span>';
   document.getElementById('word').textContent =
     currentDir === 'de-en' ? currentWord.de : currentWord.en;
 
