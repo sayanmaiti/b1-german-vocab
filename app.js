@@ -260,6 +260,51 @@ function pickNext() {
   return rest[0] || due[0] || { word: WORDS[0], dir: 'de-en' };
 }
 
+// ── Highlighting the word in its example sentence ─────────────────────────────
+const SKIP_FORMS = new Set(['hat', 'ist', 'es', 'sich', 'der', 'die', 'das', 'nur', 'plural', 'als', 'modalverb']);
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Wrap the studied word, or one of its forms, in <strong>. Catches plurals and
+// verb forms from the word's forms ("fand", "gefunden"), inflected endings
+// ("Wohnungen", "findet"), separable prefixes ("stehe … auf") and compounds
+// ("Hausaufgaben" for "die Aufgabe").
+function highlightWord(sentence, word) {
+  const rawBase = word.de
+    .replace(/\(.*?\)/g, ' ')
+    .split('/')
+    .flatMap(v => stripArticle(v.trim()).replace(/^sich /, '').split(/\s+/))
+    .map(w => w.replace(/[-–]+$/, ''))
+    .filter(w => w.length >= 2);
+  const base = rawBase.map(w => w.toLowerCase());
+  const isNoun = ARTICLES.some(a => word.de.toLowerCase().startsWith(a));
+  const formWords = (word.forms || '')
+    .split(/[\s,/()]+/)
+    .map(w => w.toLowerCase())
+    .filter(w => w.length >= 2 && !SKIP_FORMS.has(w));
+
+  const exact = new Set([...base, ...formWords]);
+  const stems = [
+    ...base.filter(w => w.length >= 4).map(w => w.replace(/(en|ern|eln|n|e)$/, '')),
+    ...formWords.filter(w => w.length >= 4).map(w => w.replace(/(et|st|t|en|e)$/, '')),
+  ].filter(s => s.length >= 3);
+  const compounds = isNoun ? base.filter(w => w.length >= 4) : [];
+  const shortWords = base.filter(w => w.length === 3);            // gut → gutes, arm → armen
+  const prefixes   = word.de.trim().endsWith('-') ? base : [];    // Bio- → Biogemüse
+
+  return escapeHtml(sentence).replace(/[A-Za-zÄÖÜäöüß]+(?:-[A-Za-zÄÖÜäöüß]+)*/g, tok => {
+    const t = tok.toLowerCase();
+    const hit = exact.has(t)
+      || stems.some(s => t.startsWith(s) && (s.length >= 6 || t.length <= s.length + 4))
+      || compounds.some(c => t.length > c.length && t.includes(c))
+      || shortWords.some(w => t.startsWith(w) && t.length <= w.length + 3)
+      || prefixes.some(p => t.startsWith(p));
+    return hit ? `<strong>${tok}</strong>` : tok;
+  });
+}
+
 // ── Answer checking ───────────────────────────────────────────────────────────
 function normalize(s) {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -415,7 +460,9 @@ function showDetails() {
     el.textContent = text || '';
     el.classList.toggle('hidden', !text);
   };
-  set('detail-example', currentWord.ex);
+  const exEl = document.getElementById('detail-example');
+  exEl.innerHTML = currentWord.ex ? highlightWord(currentWord.ex, currentWord) : '';
+  exEl.classList.toggle('hidden', !currentWord.ex);
   document.getElementById('speak-btn').style.visibility = 'visible';
   show('details');
 }
