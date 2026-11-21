@@ -87,57 +87,58 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ── Auth UI ───────────────────────────────────────────────────────────────────
-// Signed out: a "Sign in" button opens a panel with Google or email + password.
-// Signed in: the account name and a "Sign out" button.
 function updateAuthUI(user) {
   const statusEl = document.getElementById('auth-status');
   const btnEl    = document.getElementById('auth-btn');
   if (user) {
     statusEl.textContent = user.displayName || user.email;
     btnEl.textContent = 'Sign out';
-    hide('login-panel');
+    setAuthMessage('');
   } else {
     statusEl.textContent = '';
-    btnEl.textContent = 'Sign in';
+    btnEl.textContent = 'Sign in with Google';
   }
 }
 
-function setAuthMessage(text, isError = true) {
-  const el = document.getElementById('login-message');
+function setAuthMessage(text) {
+  const el = document.getElementById('auth-message');
   el.textContent = text || '';
-  el.className = 'login-message' + (isError ? ' error' : ' info');
+  el.classList.toggle('hidden', !text);
 }
 
-// Friendly text for Firebase's error codes.
+// Plain-language text for the sign-in errors people actually hit.
 function authErrorText(e) {
+  const host = location.hostname;
   const messages = {
-    'auth/invalid-email':          'That email address doesn\u2019t look right.',
-    'auth/missing-password':       'Please enter your password.',
-    'auth/weak-password':          'Choose a password with at least 6 characters.',
-    'auth/email-already-in-use':   'An account with this email already exists. Sign in instead.',
-    'auth/invalid-credential':     'Wrong email or password.',
-    'auth/wrong-password':         'Wrong email or password.',
-    'auth/user-not-found':         'No account with this email. Create one instead.',
-    'auth/too-many-requests':      'Too many attempts. Please wait a moment and try again.',
-    'auth/operation-not-allowed':  'Email sign-in isn\u2019t switched on in Firebase yet.',
+    'auth/unauthorized-domain':
+      `Sign-in isn\u2019t allowed on ${host} yet: add it under Firebase \u2192 Authentication \u2192 Settings \u2192 Authorized domains.`,
     'auth/network-request-failed': 'No connection. Check your internet and try again.',
+    'auth/too-many-requests':      'Too many attempts. Please wait a moment and try again.',
+    'auth/internal-error':         'Google sign-in failed. Please try again.',
   };
-  return messages[e && e.code] || 'Something went wrong. Please try again.';
+  return messages[e && e.code] || `Sign-in failed (${(e && e.code) || 'unknown error'}). Please try again.`;
 }
 
-function loginFields() {
-  return {
-    email:    document.getElementById('login-email').value.trim(),
-    password: document.getElementById('login-password').value,
-  };
-}
-
-async function runAuth(action) {
+// Pop-up first (works best on modern browsers); if pop-ups are blocked or not
+// supported here (some in-app browsers, home-screen apps), fall back to a full-page redirect.
+async function signInWithGoogle() {
   setAuthMessage('');
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
   try {
-    await action();
+    await auth.signInWithPopup(provider);
   } catch (e) {
-    console.warn('Auth failed:', e);
+    const usePopupFallback = [
+      'auth/popup-blocked',
+      'auth/operation-not-supported-in-this-environment',
+      'auth/web-storage-unsupported',
+    ].includes(e && e.code);
+    if (usePopupFallback) {
+      try { await auth.signInWithRedirect(provider); return; } catch (e2) { e = e2; }
+    }
+    // Closing the Google window is not an error worth showing.
+    if (['auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/user-cancelled'].includes(e && e.code)) return;
+    console.warn('Sign-in failed:', e);
     setAuthMessage(authErrorText(e));
   }
 }
@@ -146,34 +147,14 @@ document.getElementById('auth-btn').addEventListener('click', () => {
   if (currentUser) {
     auth.signOut();
   } else {
-    document.getElementById('login-panel').classList.toggle('hidden');
-    setAuthMessage('');
-    document.getElementById('login-email').focus();
+    signInWithGoogle();
   }
 });
 
-document.getElementById('google-btn').addEventListener('click', () =>
-  runAuth(() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()))
-);
-
-document.getElementById('login-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const { email, password } = loginFields();
-  runAuth(() => auth.signInWithEmailAndPassword(email, password));
-});
-
-document.getElementById('signup-btn').addEventListener('click', () => {
-  const { email, password } = loginFields();
-  runAuth(() => auth.createUserWithEmailAndPassword(email, password));
-});
-
-document.getElementById('forgot-btn').addEventListener('click', () => {
-  const { email } = loginFields();
-  if (!email) { setAuthMessage('Enter your email first, then tap \u201cForgot password?\u201d.'); return; }
-  runAuth(async () => {
-    await auth.sendPasswordResetEmail(email);
-    setAuthMessage(`If an account exists for ${email}, a reset link is on its way.`, false);
-  });
+// Finish a redirect sign-in (if one was used) and show any error from it.
+auth.getRedirectResult().catch(e => {
+  console.warn('Redirect sign-in failed:', e);
+  setAuthMessage(authErrorText(e));
 });
 
 auth.onAuthStateChanged(user => {
@@ -427,7 +408,7 @@ function correctAnswerText() {
   return currentDir === 'de-en' ? currentWord.en : fullGerman(currentWord);
 }
 
-// Show the example sentence, the sentence from the telc mock and the exam parts.
+// Show the example sentence with the answer.
 function showDetails() {
   const set = (id, text) => {
     const el = document.getElementById(id);
@@ -435,8 +416,6 @@ function showDetails() {
     el.classList.toggle('hidden', !text);
   };
   set('detail-example', currentWord.ex);
-  set('detail-exam', currentWord.exam ? `telc mock: ${currentWord.exam}` : '');
-  set('detail-parts', currentWord.parts ? `In the exam: ${currentWord.parts.join(', ')}` : '');
   document.getElementById('speak-btn').style.visibility = 'visible';
   show('details');
 }
