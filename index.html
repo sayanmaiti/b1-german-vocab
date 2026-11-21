@@ -18,24 +18,9 @@
 
     <div class="auth-bar" id="auth-bar">
       <span class="auth-status" id="auth-status"></span>
-      <button class="auth-btn" id="auth-btn">Sign in</button>
+      <button class="auth-btn" id="auth-btn">Sign in with Google</button>
     </div>
-
-    <!-- Login panel: Google or email + password -->
-    <div class="login-panel hidden" id="login-panel">
-      <button class="google-btn" id="google-btn" type="button">Continue with Google</button>
-      <div class="login-divider"><span>or use email</span></div>
-      <form id="login-form" novalidate>
-        <input type="email" id="login-email" placeholder="Email" autocomplete="email" autocapitalize="off" spellcheck="false">
-        <input type="password" id="login-password" placeholder="Password (at least 6 characters)" autocomplete="current-password">
-        <div class="btn-row">
-          <button class="btn-primary" type="submit">Sign in</button>
-          <button class="btn-secondary" id="signup-btn" type="button">Create account</button>
-        </div>
-        <button class="link-btn" id="forgot-btn" type="button">Forgot password?</button>
-        <div class="login-message" id="login-message" role="alert"></div>
-      </form>
-    </div>
+    <div class="auth-message hidden" id="auth-message" role="alert"></div>
 
     <div class="progress-row">
       <div class="progress-bar-wrap">
@@ -82,8 +67,6 @@
       <!-- Details: shown with the answer -->
       <div id="details" class="details hidden">
         <div class="detail-example" id="detail-example"></div>
-        <div class="detail-exam" id="detail-exam"></div>
-        <div class="detail-parts" id="detail-parts"></div>
       </div>
 
       <!-- Result phase: after check -->
