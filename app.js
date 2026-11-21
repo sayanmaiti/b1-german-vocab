@@ -17,6 +17,24 @@ let currentUser = null;
 // ── Constants ────────────────────────────────────────────────────────────────
 const STORAGE_KEY  = 'b1_vocab_stats';
 const TOTAL_WORDS  = WORDS.length;
+
+// ── Milestones ────────────────────────────────────────────────────────────────
+// The word list is split into groups of 50 by frequency rank
+// (milestone 1 = the 50 most common words). New words come only from the
+// current milestone; the next unlocks once 80% of the current one is learned.
+const MILESTONE_SIZE   = 50;
+const MILESTONE_UNLOCK = 0.8;
+const MILESTONES = (() => {
+  const groups = [];
+  for (let i = 0; i < WORDS.length; i += MILESTONE_SIZE) groups.push(WORDS.slice(i, i + MILESTONE_SIZE));
+  // Fold a small remainder into the previous milestone instead of a tiny last one.
+  if (groups.length > 1 && groups[groups.length - 1].length <= MILESTONE_SIZE / 2) {
+    groups[groups.length - 2] = groups[groups.length - 2].concat(groups.pop());
+  }
+  return groups;
+})();
+const MILESTONE_OF = new Map();
+MILESTONES.forEach((group, i) => group.forEach(w => MILESTONE_OF.set(w.id, i)));
 const ARTICLES     = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
 const DIRS         = ['de-en', 'en-de'];
 const MINUTE       = 60 * 1000;
@@ -32,6 +50,7 @@ let currentDir     = null;
 let sessionCorrect = 0;
 let sessionAttempts = 0;
 let lastKey        = null;
+let shownMilestone = null;   // to notice when a new milestone unlocks
 
 // ── Persistence (localStorage) ────────────────────────────────────────────────
 function loadStats() {
@@ -272,6 +291,29 @@ function countDue(now = Date.now()) {
   return n;
 }
 
+// A word counts as learned when both directions (DE→EN and EN→DE) have been
+// answered correctly and neither is currently failed.
+function isKnown(id, dir) {
+  const s = getStat(id, dir);
+  return s.correct > 0 && (s.interval === undefined || s.interval > 0);
+}
+
+function isWordLearned(word) {
+  return DIRS.every(dir => isKnown(word.id, dir));
+}
+
+function milestoneLearned(i) {
+  return MILESTONES[i].filter(isWordLearned).length;
+}
+
+// The first milestone that is not yet 80% learned.
+function currentMilestone() {
+  for (let i = 0; i < MILESTONES.length; i++) {
+    if (milestoneLearned(i) < Math.ceil(MILESTONES[i].length * MILESTONE_UNLOCK)) return i;
+  }
+  return MILESTONES.length - 1;
+}
+
 // Order: 1) cards that are due, most overdue first; 2) new cards in rank order
 // (high-frequency words first; EN→DE once DE→EN is known); 3) the card due soonest.
 function pickNext() {
@@ -295,7 +337,9 @@ function pickNext() {
     if (pool.length) return pool[Math.floor(Math.random() * pool.length)];
   }
 
+  const maxMilestone = currentMilestone();
   for (const word of WORDS) {           // WORDS is sorted by rank
+    if (MILESTONE_OF.get(word.id) > maxMilestone) break;   // not unlocked yet
     if (!isSeen(word.id, 'de-en')) return { word, dir: 'de-en' };
     const deEn = getStat(word.id, 'de-en');
     if (!isSeen(word.id, 'en-de') && deEn.correct > 0 && now - (deEn.lastSeen || 0) > EN_DE_DELAY) {
@@ -467,23 +511,103 @@ function updateScoreBar() {
   document.getElementById('session-score').textContent =
     `${sessionCorrect} / ${sessionAttempts} correct`;
 
-  // A word counts as learned when both directions (DE→EN and EN→DE) have been
-  // answered correctly and neither is currently failed.
-  const known = (id, dir) => {
-    const s = getStat(id, dir);
-    return s.correct > 0 && (s.interval === undefined || s.interval > 0);
-  };
-  let learned = 0;
-  for (const word of WORDS) {
-    if (DIRS.every(dir => known(word.id, dir))) learned++;
+  const learned = WORDS.filter(isWordLearned).length;
+
+  // Progress bar shows the current milestone.
+  const m      = currentMilestone();
+  const group  = MILESTONES[m];
+  const done   = milestoneLearned(m);
+  const target = Math.ceil(group.length * MILESTONE_UNLOCK);
+  const first  = group[0].rank, last = group[group.length - 1].rank;
+  document.getElementById('milestone-title').textContent =
+    `Milestone ${m + 1} of ${MILESTONES.length} · words ${first}–${last}`;
+  document.getElementById('progress-bar').style.width = `${Math.min(100, Math.round(done / target * 100))}%`;
+  document.getElementById('progress-label').textContent = `${done} / ${target} to unlock next`;
+  if (m === MILESTONES.length - 1) {
+    document.getElementById('progress-label').textContent = `${done} / ${group.length} learned`;
   }
-  const pct = Math.round((learned / TOTAL_WORDS) * 100);
-  document.getElementById('progress-bar').style.width = `${pct}%`;
-  document.getElementById('progress-label').textContent = `${pct}% learned`;
+
+  // Celebrate when a new milestone unlocks during this session.
+  if (shownMilestone !== null && m > shownMilestone) {
+    const banner = document.getElementById('milestone-banner');
+    banner.textContent = `🎉 Milestone ${m} complete! Milestone ${m + 1} (words ${first}–${last}) is unlocked.`;
+    banner.classList.remove('hidden');
+    setTimeout(() => banner.classList.add('hidden'), 8000);
+  }
+  shownMilestone = m;
 
   document.getElementById('stats-detail').textContent =
     `${learned.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned · ${countDue()} due for review`;
 }
+
+// ── Milestones page ───────────────────────────────────────────────────────────
+// A list of every milestone; open one to glance at its 50 words, German and English.
+function wordStatus(word) {
+  if (isWordLearned(word)) return 'learned';
+  if (DIRS.some(dir => isSeen(word.id, dir))) return 'started';
+  return 'new';
+}
+
+function renderMilestoneWords(i) {
+  return '<table class="ms-words"><tbody>' + MILESTONES[i].map(w => {
+    const forms = w.forms ? `<span class="ms-forms">${escapeHtml(w.forms)}</span>` : '';
+    return `<tr class="ms-${wordStatus(w)}">` +
+             `<td class="ms-dot" title="${wordStatus(w)}"></td>` +
+             `<td class="ms-de">${escapeHtml(w.de)}${forms}</td>` +
+             `<td class="ms-en">${escapeHtml(w.en)}</td>` +
+           `</tr>`;
+  }).join('') + '</tbody></table>';
+}
+
+function renderMilestones() {
+  const current = currentMilestone();
+  const learnedAll = WORDS.filter(isWordLearned).length;
+  document.getElementById('ms-summary').textContent =
+    `You're on milestone ${current + 1} of ${MILESTONES.length} · ` +
+    `${learnedAll.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned`;
+
+  const list = document.getElementById('ms-list');
+  list.innerHTML = MILESTONES.map((group, i) => {
+    const done   = milestoneLearned(i);
+    const pct    = Math.round(done / group.length * 100);
+    const state  = i < current ? 'done' : i === current ? 'current' : 'locked';
+    const chip   = { done: 'Done', current: 'Current', locked: 'Locked' }[state];
+    return `<details class="ms-item ms-${state}" data-index="${i}"${i === current ? ' open' : ''}>` +
+             `<summary>` +
+               `<span class="ms-name">Milestone ${i + 1}</span>` +
+               `<span class="ms-range">words ${group[0].rank}–${group[group.length - 1].rank}</span>` +
+               `<span class="ms-chip">${chip}</span>` +
+               `<span class="ms-bar"><span style="width:${pct}%"></span></span>` +
+               `<span class="ms-count">${done}/${group.length}</span>` +
+             `</summary>` +
+             `<div class="ms-body">${i === current ? renderMilestoneWords(i) : ''}</div>` +
+           `</details>`;
+  }).join('');
+
+  // Fill a milestone's word list only when it's opened (keeps the page fast).
+  list.querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => {
+    const body = d.querySelector('.ms-body');
+    if (d.open && !body.innerHTML) body.innerHTML = renderMilestoneWords(+d.dataset.index);
+  }));
+
+  const cur = list.querySelector('.ms-current');
+  if (cur) setTimeout(() => cur.scrollIntoView({ block: 'start' }), 0);
+}
+
+// Simple routing: #milestones shows the list, anything else shows practice.
+function showView() {
+  const onList = location.hash === '#milestones';
+  document.getElementById('practice-view').classList.toggle('hidden', onList);
+  document.getElementById('milestones-view').classList.toggle('hidden', !onList);
+  document.getElementById('view-btn').textContent = onList ? 'Practice' : 'Milestones';
+  if (onList) renderMilestones();
+  else updateScoreBar();
+}
+
+document.getElementById('view-btn').addEventListener('click', () => {
+  location.hash = location.hash === '#milestones' ? '' : '#milestones';
+});
+window.addEventListener('hashchange', showView);
 
 // ── Core flow ─────────────────────────────────────────────────────────────────
 function nextCard() {
@@ -599,3 +723,4 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 loadStats();
 updateScoreBar();
 nextCard();
+showView();
