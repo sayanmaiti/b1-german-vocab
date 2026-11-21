@@ -86,76 +86,123 @@ document.addEventListener('visibilitychange', () => {
   loadFromFirestore(currentUser.uid).then(() => updateScoreBar());
 });
 
-// ── Auth UI ───────────────────────────────────────────────────────────────────
+// ── Auth UI: sign in with an emailed link ─────────────────────────────────────
+// 1. Enter your email → Firebase emails a sign-in link.
+// 2. Open the link (on any device) → you're signed in and your progress syncs.
+const EMAIL_KEY = 'b1_vocab_email_for_signin';
+
 function updateAuthUI(user) {
   const statusEl = document.getElementById('auth-status');
   const btnEl    = document.getElementById('auth-btn');
   if (user) {
-    statusEl.textContent = user.displayName || user.email;
+    statusEl.textContent = user.email || user.displayName || 'Signed in';
     btnEl.textContent = 'Sign out';
-    setAuthMessage('');
+    hide('login-panel');
   } else {
     statusEl.textContent = '';
-    btnEl.textContent = 'Sign in with Google';
+    btnEl.textContent = 'Sign in';
   }
 }
 
-function setAuthMessage(text) {
+function setAuthMessage(text, isError = true) {
   const el = document.getElementById('auth-message');
   el.textContent = text || '';
-  el.classList.toggle('hidden', !text);
+  el.className = 'auth-message' + (isError ? '' : ' info') + (text ? '' : ' hidden');
 }
 
 // Plain-language text for the sign-in errors people actually hit.
 function authErrorText(e) {
+  const code = (e && e.code) || '';
   const host = location.hostname;
+  if (code.startsWith('auth/requests-from-referer')) {
+    return `Firebase is blocking requests from ${host}. Add https://${host}/* to the API key's website restrictions in Google Cloud.`;
+  }
   const messages = {
-    'auth/unauthorized-domain':
-      `Sign-in isn\u2019t allowed on ${host} yet: add it under Firebase \u2192 Authentication \u2192 Settings \u2192 Authorized domains.`,
+    'auth/invalid-email':          'That email address doesn\u2019t look right.',
+    'auth/missing-email':          'Please enter your email address.',
+    'auth/operation-not-allowed':  'Email-link sign-in isn\u2019t switched on in Firebase yet (Authentication \u2192 Sign-in method \u2192 Email/Password \u2192 Email link).',
+    'auth/unauthorized-continue-uri': `Add ${host} under Firebase \u2192 Authentication \u2192 Settings \u2192 Authorized domains.`,
+    'auth/unauthorized-domain':    `Add ${host} under Firebase \u2192 Authentication \u2192 Settings \u2192 Authorized domains.`,
+    'auth/invalid-action-code':    'This sign-in link has expired or was already used. Request a new one.',
+    'auth/expired-action-code':    'This sign-in link has expired. Request a new one.',
+    'auth/too-many-requests':      'Too many attempts. Please wait a few minutes and try again.',
     'auth/network-request-failed': 'No connection. Check your internet and try again.',
-    'auth/too-many-requests':      'Too many attempts. Please wait a moment and try again.',
-    'auth/internal-error':         'Google sign-in failed. Please try again.',
   };
-  return messages[e && e.code] || `Sign-in failed (${(e && e.code) || 'unknown error'}). Please try again.`;
+  return messages[code] || `Sign-in failed (${code || 'unknown error'}). Please try again.`;
 }
 
-// Pop-up first (works best on modern browsers); if pop-ups are blocked or not
-// supported here (some in-app browsers, home-screen apps), fall back to a full-page redirect.
-async function signInWithGoogle() {
-  setAuthMessage('');
-  const provider = new firebase.auth.GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  try {
-    await auth.signInWithPopup(provider);
-  } catch (e) {
-    const usePopupFallback = [
-      'auth/popup-blocked',
-      'auth/operation-not-supported-in-this-environment',
-      'auth/web-storage-unsupported',
-    ].includes(e && e.code);
-    if (usePopupFallback) {
-      try { await auth.signInWithRedirect(provider); return; } catch (e2) { e = e2; }
-    }
-    // Closing the Google window is not an error worth showing.
-    if (['auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/user-cancelled'].includes(e && e.code)) return;
-    console.warn('Sign-in failed:', e);
-    setAuthMessage(authErrorText(e));
-  }
+function showLoginPanel(prompt) {
+  show('login-panel');
+  document.getElementById('login-prompt').textContent = prompt;
+  document.getElementById('login-email').focus();
 }
 
 document.getElementById('auth-btn').addEventListener('click', () => {
   if (currentUser) {
     auth.signOut();
+    return;
+  }
+  const panel = document.getElementById('login-panel');
+  if (panel.classList.contains('hidden')) {
+    setAuthMessage('');
+    showLoginPanel('We\u2019ll email you a link. Open it on this device or any other to sign in.');
   } else {
-    signInWithGoogle();
+    hide('login-panel');
   }
 });
 
-// Finish a redirect sign-in (if one was used) and show any error from it.
-auth.getRedirectResult().catch(e => {
-  console.warn('Redirect sign-in failed:', e);
-  setAuthMessage(authErrorText(e));
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { setAuthMessage('Please enter your email address.'); return; }
+  setAuthMessage('');
+
+  // Arrived from a sign-in link: finish signing in with the email just typed.
+  if (auth.isSignInWithEmailLink(location.href)) {
+    await completeLinkSignIn(email);
+    return;
+  }
+
+  const btn = document.getElementById('login-submit');
+  btn.disabled = true;
+  try {
+    await auth.sendSignInLinkToEmail(email, {
+      url: location.origin + location.pathname,
+      handleCodeInApp: true,
+    });
+    localStorage.setItem(EMAIL_KEY, email);
+    setAuthMessage(`Link sent to ${email}. Open it to sign in (check spam if it doesn\u2019t arrive).`, false);
+  } catch (err) {
+    console.warn('Sending sign-in link failed:', err);
+    setAuthMessage(authErrorText(err));
+  } finally {
+    btn.disabled = false;
+  }
 });
+
+async function completeLinkSignIn(email) {
+  try {
+    await auth.signInWithEmailLink(email, location.href);
+    localStorage.removeItem(EMAIL_KEY);
+    history.replaceState(null, '', location.origin + location.pathname);  // remove the one-time code from the address
+    setAuthMessage('');
+  } catch (err) {
+    console.warn('Email-link sign-in failed:', err);
+    setAuthMessage(authErrorText(err));
+  }
+}
+
+// Opened from the emailed link?
+if (auth.isSignInWithEmailLink(location.href)) {
+  const saved = localStorage.getItem(EMAIL_KEY);
+  if (saved) {
+    completeLinkSignIn(saved);
+  } else {
+    // Link opened on a different device or browser: confirm the email first.
+    showLoginPanel('Confirm your email address to finish signing in.');
+    document.getElementById('login-submit').textContent = 'Sign in';
+  }
+}
 
 auth.onAuthStateChanged(user => {
   currentUser = user;
