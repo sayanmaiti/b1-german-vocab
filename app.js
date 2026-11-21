@@ -77,15 +77,58 @@ async function loadFromFirestore(uid) {
 }
 
 // ── Auth UI ───────────────────────────────────────────────────────────────────
+// Signed out: a "Sign in" button opens a panel with Google or email + password.
+// Signed in: the account name and a "Sign out" button.
 function updateAuthUI(user) {
   const statusEl = document.getElementById('auth-status');
   const btnEl    = document.getElementById('auth-btn');
   if (user) {
     statusEl.textContent = user.displayName || user.email;
     btnEl.textContent = 'Sign out';
+    hide('login-panel');
   } else {
     statusEl.textContent = '';
-    btnEl.textContent = 'Sign in with Google';
+    btnEl.textContent = 'Sign in';
+  }
+}
+
+function setAuthMessage(text, isError = true) {
+  const el = document.getElementById('login-message');
+  el.textContent = text || '';
+  el.className = 'login-message' + (isError ? ' error' : ' info');
+}
+
+// Friendly text for Firebase's error codes.
+function authErrorText(e) {
+  const messages = {
+    'auth/invalid-email':          'That email address doesn\u2019t look right.',
+    'auth/missing-password':       'Please enter your password.',
+    'auth/weak-password':          'Choose a password with at least 6 characters.',
+    'auth/email-already-in-use':   'An account with this email already exists. Sign in instead.',
+    'auth/invalid-credential':     'Wrong email or password.',
+    'auth/wrong-password':         'Wrong email or password.',
+    'auth/user-not-found':         'No account with this email. Create one instead.',
+    'auth/too-many-requests':      'Too many attempts. Please wait a moment and try again.',
+    'auth/operation-not-allowed':  'Email sign-in isn\u2019t switched on in Firebase yet.',
+    'auth/network-request-failed': 'No connection. Check your internet and try again.',
+  };
+  return messages[e && e.code] || 'Something went wrong. Please try again.';
+}
+
+function loginFields() {
+  return {
+    email:    document.getElementById('login-email').value.trim(),
+    password: document.getElementById('login-password').value,
+  };
+}
+
+async function runAuth(action) {
+  setAuthMessage('');
+  try {
+    await action();
+  } catch (e) {
+    console.warn('Auth failed:', e);
+    setAuthMessage(authErrorText(e));
   }
 }
 
@@ -93,8 +136,34 @@ document.getElementById('auth-btn').addEventListener('click', () => {
   if (currentUser) {
     auth.signOut();
   } else {
-    auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    document.getElementById('login-panel').classList.toggle('hidden');
+    setAuthMessage('');
+    document.getElementById('login-email').focus();
   }
+});
+
+document.getElementById('google-btn').addEventListener('click', () =>
+  runAuth(() => auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()))
+);
+
+document.getElementById('login-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const { email, password } = loginFields();
+  runAuth(() => auth.signInWithEmailAndPassword(email, password));
+});
+
+document.getElementById('signup-btn').addEventListener('click', () => {
+  const { email, password } = loginFields();
+  runAuth(() => auth.createUserWithEmailAndPassword(email, password));
+});
+
+document.getElementById('forgot-btn').addEventListener('click', () => {
+  const { email } = loginFields();
+  if (!email) { setAuthMessage('Enter your email first, then tap \u201cForgot password?\u201d.'); return; }
+  runAuth(async () => {
+    await auth.sendPasswordResetEmail(email);
+    setAuthMessage(`If an account exists for ${email}, a reset link is on its way.`, false);
+  });
 });
 
 auth.onAuthStateChanged(user => {
