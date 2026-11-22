@@ -652,7 +652,7 @@ h1 {
 /* One word in a milestone: dot · German (+type, forms) · English, then the example */
 .ms-row {
   display: grid;
-  grid-template-columns: 14px 1fr 1fr;
+  grid-template-columns: 14px 1fr 1fr 28px;
   column-gap: 10px;
   row-gap: 3px;
   padding: 9px 14px;
@@ -682,7 +682,7 @@ h1 {
 .ms-en { color: #3A3B3C; }
 
 .ms-ex {
-  grid-column: 2 / 4;
+  grid-column: 2 / 5;
   font-size: 13px;
   line-height: 1.4;
   color: #65676B;
@@ -744,4 +744,147 @@ h1 {
   padding: 4px 9px;
   border-radius: 20px;
   vertical-align: 0;
+}
+
+/* ── Difficult words: stars, tabs, practice mode ─ */
+.card { position: relative; }
+
+.star-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: #F7F8FA;
+  color: #B0B3B8;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.star-btn:hover { background: #FEF3D6; color: #F9AB00; }
+.star-btn.on { background: #FEF3D6; color: #F9AB00; }
+
+.star-hint {
+  position: absolute;
+  top: 58px;
+  right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #9A6700;
+  background: #FEF3D6;
+  border-radius: 8px;
+  padding: 3px 8px;
+}
+
+.ms-star {
+  border: none;
+  background: none;
+  font-size: 19px;
+  line-height: 1.1;
+  color: #D0D3D8;
+  cursor: pointer;
+  padding: 0;
+  text-align: right;
+}
+
+.ms-star:hover { color: #F9AB00; }
+.ms-star.on { color: #F9AB00; }
+
+.ms-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 10px;
+}
+
+.ms-tab {
+  font-family: 'Nunito', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1877F2;
+  background: #FFFFFF;
+  border: 2px solid #D2E4FF;
+  border-radius: 20px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.ms-tab.active {
+  color: #FFFFFF;
+  background: #1877F2;
+  border-color: #1877F2;
+}
+
+.ms-tab .n {
+  border-radius: 10px;
+  padding: 0 6px;
+  margin-left: 4px;
+  background: #FEF3D6;
+  color: #9A6700;
+}
+
+.ms-tab.active .n { background: rgba(255, 255, 255, 0.25); color: #FFFFFF; }
+
+.diff-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 10px;
+}
+
+.diff-head p {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1C1E21;
+}
+
+.practice-btn {
+  flex: none;
+  font-family: 'Nunito', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: #FFFFFF;
+  background: #F9AB00;
+  border: none;
+  border-radius: 10px;
+  padding: 9px 14px;
+  cursor: pointer;
+}
+
+.group-label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #65676B;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 12px 14px 4px;
+}
+
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #9A6700;
+  background: #FEF3D6;
+  border-radius: 20px;
+  padding: 6px 8px 6px 12px;
+  margin-bottom: 12px;
+}
+
+.mode-chip.hidden { display: none; }
+
+.mode-exit {
+  border: none;
+  background: rgba(154, 103, 0, 0.12);
+  color: #9A6700;
+  font-weight: 900;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
 }
