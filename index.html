@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261121h">
+  <link rel="stylesheet" href="style.css?v=20261122a">
 </head>
 <body>
   <div class="app">
@@ -35,6 +35,10 @@
     <div class="auth-message hidden" id="auth-message" role="alert"></div>
 
     <div id="practice-view">
+    <div class="mode-chip hidden" id="mode-chip">
+      <span id="mode-text"></span>
+      <button class="mode-exit" id="mode-exit" type="button" aria-label="Stop practising difficult words">✕</button>
+    </div>
     <div class="milestone-title" id="milestone-title">Milestone 1</div>
     <div class="progress-row">
       <div class="progress-bar-wrap">
@@ -45,6 +49,8 @@
     <div class="milestone-banner hidden" id="milestone-banner" role="status"></div>
 
     <div class="card" id="card">
+      <button class="star-btn" id="star-btn" type="button" aria-label="Mark as difficult">☆</button>
+      <span class="star-hint hidden" id="star-hint"></span>
       <div class="badge-row">
         <div class="direction-badge" id="direction">DE &rarr; EN</div>
         <div class="pos-chip pos-chip-card hidden" id="pos"></div>
@@ -104,13 +110,26 @@
 
     <!-- Milestones page: glance at every milestone's words -->
     <div id="milestones-view" class="hidden">
-      <p class="ms-summary" id="ms-summary"></p>
+      <div class="ms-tabs">
+        <button class="ms-tab" id="tab-all" type="button">All milestones</button>
+        <button class="ms-tab" id="tab-difficult" type="button">★ Difficult <span class="n" id="difficult-count">0</span></button>
+      </div>
       <div class="ms-legend">
         <span><i class="ms-key ms-key-learned"></i>Learned</span>
         <span><i class="ms-key ms-key-started"></i>Started</span>
         <span><i class="ms-key ms-key-new"></i>New</span>
       </div>
-      <div class="ms-list" id="ms-list"></div>
+      <div id="all-panel">
+        <p class="ms-summary" id="ms-summary"></p>
+        <div class="ms-list" id="ms-list"></div>
+      </div>
+      <div id="difficult-panel" class="hidden">
+        <div class="diff-head">
+          <p id="difficult-summary"></p>
+          <button class="practice-btn" id="practise-difficult-btn" type="button">Practise these</button>
+        </div>
+        <div class="ms-list" id="difficult-list"></div>
+      </div>
     </div>
   </div>
 
@@ -119,7 +138,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-  <script src="words.js?v=20261121h"></script>
-  <script src="app.js?v=20261121h"></script>
+  <script src="words.js?v=20261122a"></script>
+  <script src="app.js?v=20261122a"></script>
 </body>
 </html>

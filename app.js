@@ -21,9 +21,8 @@ const TOTAL_WORDS  = WORDS.length;
 // ── Milestones ────────────────────────────────────────────────────────────────
 // The word list is split into groups of 30 by frequency rank
 // (milestone 1 = the 30 most common words). New words come only from the
-// current milestone; the next unlocks once 80% of the current one is learned.
+// current milestone; the next unlocks once every word in it is done.
 const MILESTONE_SIZE   = 30;
-const MILESTONE_UNLOCK = 0.8;
 const MILESTONES = (() => {
   const groups = [];
   for (let i = 0; i < WORDS.length; i += MILESTONE_SIZE) groups.push(WORDS.slice(i, i + MILESTONE_SIZE));
@@ -248,6 +247,11 @@ function recordResult(wordId, dir, isCorrect) {
   if (isCorrect) s.correct += 1;
   s.lastSeen = Date.now();
   schedule(s, isCorrect);
+  // Difficult (starred) words come back sooner than usual.
+  if (isCorrect && isStarred(wordId) && s.interval > 1) {
+    s.interval = Math.max(1, Math.round(s.interval * 0.6 * 10) / 10);
+    s.due = Date.now() + s.interval * DAY;
+  }
   saveStats();
 }
 
@@ -302,21 +306,69 @@ function isWordLearned(word) {
   return DIRS.every(dir => isKnown(word.id, dir));
 }
 
-function milestoneLearned(i) {
-  return MILESTONES[i].filter(isWordLearned).length;
+// A word is "done" for its milestone once both directions have been answered
+// correctly at least once. Getting it wrong later doesn't re-lock the milestone;
+// the word simply comes back for review.
+function isWordDone(word) {
+  return DIRS.every(dir => getStat(word.id, dir).correct > 0);
 }
 
-// The first milestone that is not yet 80% learned.
+function milestoneDone(i) {
+  return MILESTONES[i].filter(isWordDone).length;
+}
+
+// The first milestone that still has words not done.
 function currentMilestone() {
   for (let i = 0; i < MILESTONES.length; i++) {
-    if (milestoneLearned(i) < Math.ceil(MILESTONES[i].length * MILESTONE_UNLOCK)) return i;
+    if (milestoneDone(i) < MILESTONES[i].length) return i;
   }
   return MILESTONES.length - 1;
+}
+
+// ── Difficult words (starred) ─────────────────────────────────────────────────
+// Stored in the same stats object (key "star_<id>") so they sync like progress.
+const starKey = id => `star_${id}`;
+
+function isStarred(id) {
+  const s = stats[starKey(id)];
+  return !!(s && s.starred);
+}
+
+function toggleStar(id) {
+  stats[starKey(id)] = { starred: !isStarred(id), lastSeen: Date.now() };
+  saveStats();
+  return isStarred(id);
+}
+
+function starredWords() {
+  return WORDS.filter(w => isStarred(w.id));
+}
+
+// Practising only the difficult words (for this session).
+let difficultMode = false;
+let difficultDone = new Set();   // starred words answered correctly in this round
+
+function pickDifficult() {
+  const starred = starredWords();
+  if (!starred.length) { difficultMode = false; return null; }
+  let pool = starred.filter(w => !difficultDone.has(w.id));
+  if (!pool.length) { difficultDone.clear(); pool = starred; }   // round done: start again
+  const lastId = lastKey ? Number(lastKey.split('_')[0]) : null;
+  if (pool.length > 1) pool = pool.filter(w => w.id !== lastId);
+  const word = pool[Math.floor(Math.random() * pool.length)];
+  // Ask the weaker direction first.
+  const [a, b] = DIRS.map(dir => getStat(word.id, dir).correct);
+  const dir = a === b ? DIRS[Math.floor(Math.random() * 2)] : (a < b ? 'de-en' : 'en-de');
+  return { word, dir };
 }
 
 // Order: 1) cards that are due, most overdue first; 2) new cards in rank order
 // (high-frequency words first; EN→DE once DE→EN is known); 3) the card due soonest.
 function pickNext() {
+  if (difficultMode) {
+    const d = pickDifficult();
+    if (d) return d;
+  }
   const now = Date.now();
   const due = [];
   const upcoming = [];
@@ -338,14 +390,18 @@ function pickNext() {
   }
 
   const maxMilestone = currentMilestone();
+  let waitingEnDe = null;               // an EN→DE card still inside its short delay
   for (const word of WORDS) {           // WORDS is sorted by rank
     if (MILESTONE_OF.get(word.id) > maxMilestone) break;   // not unlocked yet
     if (!isSeen(word.id, 'de-en')) return { word, dir: 'de-en' };
     const deEn = getStat(word.id, 'de-en');
-    if (!isSeen(word.id, 'en-de') && deEn.correct > 0 && now - (deEn.lastSeen || 0) > EN_DE_DELAY) {
-      return { word, dir: 'en-de' };
+    if (!isSeen(word.id, 'en-de') && deEn.correct > 0) {
+      if (now - (deEn.lastSeen || 0) > EN_DE_DELAY) return { word, dir: 'en-de' };
+      if (!waitingEnDe && statKey(word.id, 'en-de') !== lastKey) waitingEnDe = { word, dir: 'en-de' };
     }
   }
+  // Nothing new and nothing due: rather than stall, take an EN→DE card early.
+  if (waitingEnDe) return waitingEnDe;
 
   const rest = upcoming.concat(due).filter(notLast).sort((a, b) => a.d - b.d);
   return rest[0] || due[0] || { word: WORDS[0], dir: 'de-en' };
@@ -516,16 +572,15 @@ function updateScoreBar() {
   // Progress bar shows the current milestone.
   const m      = currentMilestone();
   const group  = MILESTONES[m];
-  const done   = milestoneLearned(m);
-  const target = Math.ceil(group.length * MILESTONE_UNLOCK);
+  const done   = milestoneDone(m);
+  const target = group.length;
   const first  = group[0].rank, last = group[group.length - 1].rank;
   document.getElementById('milestone-title').textContent =
     `Milestone ${m + 1} of ${MILESTONES.length} · words ${first}–${last}`;
   document.getElementById('progress-bar').style.width = `${Math.min(100, Math.round(done / target * 100))}%`;
-  document.getElementById('progress-label').textContent = `${done} / ${target} to unlock next`;
-  if (m === MILESTONES.length - 1) {
-    document.getElementById('progress-label').textContent = `${done} / ${group.length} learned`;
-  }
+  document.getElementById('progress-label').textContent =
+    m === MILESTONES.length - 1 ? `${done} / ${target} done` : `${done} / ${target} done to unlock next`;
+  updateModeChip();
 
   // Celebrate when a new milestone unlocks during this session.
   if (shownMilestone !== null && m > shownMilestone) {
@@ -541,7 +596,8 @@ function updateScoreBar() {
 }
 
 // ── Milestones page ───────────────────────────────────────────────────────────
-// A list of every milestone; open one to glance at its 50 words, German and English.
+// A list of every milestone; open one to glance at its words, German and English.
+// A second tab lists the difficult (starred) words from every milestone.
 // Short labels for word types.
 const POS_LABEL = {
   noun: 'noun', verb: 'verb', adjective: 'adj.', adverb: 'adv.', preposition: 'prep.',
@@ -570,23 +626,59 @@ function wordStatus(word) {
   return 'new';
 }
 
+function renderWordRow(w) {
+  const pos     = posLabel(w);
+  const forms   = w.forms ? `<div class="ms-forms">${escapeHtml(w.forms)}</div>` : '';
+  const ex      = w.ex ? `<div class="ms-ex">${highlightWord(w.ex, w)}</div>` : '';
+  const starred = isStarred(w.id);
+  return `<div class="ms-row ms-${wordStatus(w)}">` +
+           `<span class="ms-dot" title="${wordStatus(w)}"></span>` +
+           `<div class="ms-left">` +
+             `<span class="ms-de">${escapeHtml(w.de)}</span>` +
+             (pos ? ` <span class="pos-chip">${pos}</span>` : '') +
+             (w.case ? ' ' + caseChip(w) : '') +
+             forms +
+           `</div>` +
+           `<div class="ms-en">${escapeHtml(w.en)}</div>` +
+           `<button class="ms-star${starred ? ' on' : ''}" data-id="${w.id}" type="button" ` +
+             `aria-label="${starred ? 'Unmark' : 'Mark'} as difficult">${starred ? '★' : '☆'}</button>` +
+           ex +
+         `</div>`;
+}
+
 function renderMilestoneWords(i) {
-  return '<div class="ms-words">' + MILESTONES[i].map(w => {
-    const pos   = posLabel(w);
-    const forms = w.forms ? `<div class="ms-forms">${escapeHtml(w.forms)}</div>` : '';
-    const ex    = w.ex ? `<div class="ms-ex">${highlightWord(w.ex, w)}</div>` : '';
-    return `<div class="ms-row ms-${wordStatus(w)}">` +
-             `<span class="ms-dot" title="${wordStatus(w)}"></span>` +
-             `<div class="ms-left">` +
-               `<span class="ms-de">${escapeHtml(w.de)}</span>` +
-               (pos ? ` <span class="pos-chip">${pos}</span>` : '') +
-               (w.case ? ' ' + caseChip(w) : '') +
-               forms +
-             `</div>` +
-             `<div class="ms-en">${escapeHtml(w.en)}</div>` +
-             ex +
-           `</div>`;
-  }).join('') + '</div>';
+  return '<div class="ms-words">' + MILESTONES[i].map(renderWordRow).join('') + '</div>';
+}
+
+function updateDifficultCount() {
+  document.getElementById('difficult-count').textContent = starredWords().length;
+}
+
+function renderDifficult() {
+  const words = starredWords();
+  updateDifficultCount();
+  const head = document.getElementById('difficult-summary');
+  const btn  = document.getElementById('practise-difficult-btn');
+  const list = document.getElementById('difficult-list');
+  if (!words.length) {
+    head.textContent = 'No difficult words yet. Tap ☆ on a card, or next to any word in a milestone, to add it here.';
+    btn.classList.add('hidden');
+    list.innerHTML = '';
+    return;
+  }
+  const groups = new Map();
+  for (const w of words) {
+    const m = MILESTONE_OF.get(w.id);
+    if (!groups.has(m)) groups.set(m, []);
+    groups.get(m).push(w);
+  }
+  head.textContent = `${words.length} difficult word${words.length === 1 ? '' : 's'} from ` +
+    `${groups.size} milestone${groups.size === 1 ? '' : 's'}`;
+  btn.classList.remove('hidden');
+  list.innerHTML = '<div class="ms-item"><div class="ms-words">' +
+    [...groups.entries()].map(([m, ws]) =>
+      `<div class="group-label">Milestone ${m + 1}</div>` + ws.map(renderWordRow).join('')
+    ).join('') + '</div></div>';
 }
 
 function renderMilestones() {
@@ -596,9 +688,10 @@ function renderMilestones() {
     `You're on milestone ${current + 1} of ${MILESTONES.length} · ` +
     `${learnedAll.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned`;
 
+  updateDifficultCount();
   const list = document.getElementById('ms-list');
   list.innerHTML = MILESTONES.map((group, i) => {
-    const done   = milestoneLearned(i);
+    const done   = milestoneDone(i);
     const pct    = Math.round(done / group.length * 100);
     const state  = i < current ? 'done' : i === current ? 'current' : 'locked';
     const chip   = { done: 'Done', current: 'Current', locked: 'Locked' }[state];
@@ -624,20 +717,92 @@ function renderMilestones() {
   if (cur) setTimeout(() => cur.scrollIntoView({ block: 'start' }), 0);
 }
 
-// Simple routing: #milestones shows the list, anything else shows practice.
+// Simple routing: #milestones and #difficult show the lists, anything else shows practice.
 function showView() {
-  const onList = location.hash === '#milestones';
+  const hash      = location.hash;
+  const onList    = hash === '#milestones' || hash === '#difficult';
+  const onDiff    = hash === '#difficult';
   document.getElementById('practice-view').classList.toggle('hidden', onList);
   document.getElementById('milestones-view').classList.toggle('hidden', !onList);
   document.getElementById('view-btn').textContent = onList ? 'Practice' : 'Milestones';
-  if (onList) renderMilestones();
+  document.getElementById('tab-all').classList.toggle('active', !onDiff);
+  document.getElementById('tab-difficult').classList.toggle('active', onDiff);
+  document.getElementById('all-panel').classList.toggle('hidden', onDiff);
+  document.getElementById('difficult-panel').classList.toggle('hidden', !onDiff);
+  if (onDiff) renderDifficult();
+  else if (onList) renderMilestones();
   else updateScoreBar();
 }
 
 document.getElementById('view-btn').addEventListener('click', () => {
-  location.hash = location.hash === '#milestones' ? '' : '#milestones';
+  const onList = location.hash === '#milestones' || location.hash === '#difficult';
+  location.hash = onList ? '' : '#milestones';
 });
+document.getElementById('tab-all').addEventListener('click', () => { location.hash = '#milestones'; });
+document.getElementById('tab-difficult').addEventListener('click', () => { location.hash = '#difficult'; });
 window.addEventListener('hashchange', showView);
+
+// Stars next to words on the Milestones page.
+document.getElementById('milestones-view').addEventListener('click', (e) => {
+  const btn = e.target.closest('.ms-star');
+  if (!btn) return;
+  const on = toggleStar(Number(btn.dataset.id));
+  btn.classList.toggle('on', on);
+  btn.textContent = on ? '★' : '☆';
+  btn.setAttribute('aria-label', `${on ? 'Unmark' : 'Mark'} as difficult`);
+  if (location.hash === '#difficult') renderDifficult();
+  else updateDifficultCount();
+});
+
+// Practise only the difficult words.
+document.getElementById('practise-difficult-btn').addEventListener('click', () => {
+  difficultMode = true;
+  difficultDone = new Set();
+  location.hash = '';
+  nextCard();
+});
+
+document.getElementById('mode-exit').addEventListener('click', () => {
+  difficultMode = false;
+  updateScoreBar();
+  nextCard();
+});
+
+function updateModeChip() {
+  const chip = document.getElementById('mode-chip');
+  const total = starredWords().length;
+  if (difficultMode && total) {
+    const left = starredWords().filter(w => !difficultDone.has(w.id)).length;
+    document.getElementById('mode-text').textContent =
+      `★ Practising difficult words · ${left} of ${total} left`;
+  } else {
+    difficultMode = false;
+  }
+  chip.classList.toggle('hidden', !difficultMode);
+  document.getElementById('milestone-title').classList.toggle('hidden', difficultMode);
+  document.querySelector('.progress-row').classList.toggle('hidden', difficultMode);
+}
+
+// The star on the flashcard.
+function updateStarBtn() {
+  const btn = document.getElementById('star-btn');
+  const on = isStarred(currentWord.id);
+  btn.classList.toggle('on', on);
+  btn.textContent = on ? '★' : '☆';
+  btn.setAttribute('aria-label', `${on ? 'Unmark' : 'Mark'} as difficult`);
+}
+
+let starHintTimer = null;
+document.getElementById('star-btn').addEventListener('click', () => {
+  const on = toggleStar(currentWord.id);
+  updateStarBtn();
+  const hint = document.getElementById('star-hint');
+  hint.textContent = on ? 'Marked difficult' : 'Removed from difficult';
+  hint.classList.remove('hidden');
+  clearTimeout(starHintTimer);
+  starHintTimer = setTimeout(() => hint.classList.add('hidden'), 1500);
+  updateModeChip();
+});
 
 // ── Core flow ─────────────────────────────────────────────────────────────────
 function nextCard() {
@@ -661,6 +826,8 @@ function nextCard() {
   formsEl.textContent = currentDir === 'de-en' && currentWord.forms ? `(${currentWord.forms})` : '';
   document.getElementById('speak-btn').style.visibility = currentDir === 'de-en' ? 'visible' : 'hidden';
   lastKey = statKey(currentWord.id, currentDir);
+  updateStarBtn();
+  hide('star-hint');
   hide('details');
 
   document.getElementById('answer-input').value = '';
@@ -696,6 +863,7 @@ function handleCheck() {
 
   const correct = isCorrectAnswer(input);
   recordResult(currentWord.id, currentDir, correct);
+  if (difficultMode && correct) difficultDone.add(currentWord.id);
   sessionAttempts++;
   if (correct) sessionCorrect++;
   updateScoreBar();
@@ -723,6 +891,7 @@ function handleShowMe() {
 
 function handleSelfRate(knew) {
   recordResult(currentWord.id, currentDir, knew);
+  if (difficultMode && knew) difficultDone.add(currentWord.id);
   sessionAttempts++;
   if (knew) sessionCorrect++;
   updateScoreBar();
