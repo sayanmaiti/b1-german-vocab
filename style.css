@@ -550,6 +550,8 @@ h1 {
 }
 
 .view-btn:hover { background: #E7F3FF; }
+.learn-link { text-decoration: none; background: #1877F2; color: #fff; border-color: #1877F2; }
+.learn-link:hover { background: #166FE5; }
 
 /* ── Milestones page ───────────────────────────── */
 .ms-summary {
