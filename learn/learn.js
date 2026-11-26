@@ -20,24 +20,27 @@ let currentUser = null;
 const STORE_KEY   = 'b1_learn';
 const VOCAB_KEY   = 'b1_vocab_stats';
 const PASS_MARK   = 8;
-const REVIEW_SIZE = 10;
+const HARD_SIZE   = 15;
+const DAY         = 24 * 60 * 60 * 1000;
 
 // ── Progress ──────────────────────────────────────────────────────────────────
-// lessons: { "7": { passed, best, ts } }   review: { "7-c3": { miss, ok } }
+// lessons: { "7": { passed, best, ts } }
+// hard:    { "7-c3": { added, misses, hint, saved, streak, due, last, lastMiss, mastered, removed, ts } }
+// review:  older format of the mistakes list, kept only so it can be migrated into hard
 let progress = loadLocal();
 let vocabStats = null;   // flashcard stats from the cloud, for the "words due" count
 
 function loadLocal() {
   try {
     const p = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
-    return { lessons: p.lessons || {}, review: p.review || {} };
+    return { lessons: p.lessons || {}, review: p.review || {}, hard: p.hard || {} };
   } catch (e) {
-    return { lessons: {}, review: {} };
+    return { lessons: {}, review: {}, hard: {} };
   }
 }
 
 function mergeProgress(a, b) {
-  const out = { lessons: { ...a.lessons }, review: { ...a.review } };
+  const out = { lessons: { ...a.lessons }, review: { ...a.review }, hard: { ...(a.hard || {}) } };
   for (const [id, l] of Object.entries(b.lessons || {})) {
     const m = out.lessons[id] || {};
     out.lessons[id] = {
@@ -49,6 +52,11 @@ function mergeProgress(a, b) {
   for (const [k, r] of Object.entries(b.review || {})) {
     const m = out.review[k] || {};
     out.review[k] = { miss: Math.max(m.miss || 0, r.miss || 0), ok: Math.max(m.ok || 0, r.ok || 0) };
+  }
+  // Hard sentences: the most recently updated version of each entry wins.
+  for (const [k, e] of Object.entries(b.hard || {})) {
+    const m = out.hard[k];
+    if (!m || (e.ts || 0) > (m.ts || 0)) out.hard[k] = e;
   }
   return out;
 }
@@ -68,6 +76,7 @@ async function pullCloud() {
     const snap = await db.collection('users').doc(currentUser.uid).get();
     const data = snap.exists ? snap.data() : {};
     if (data.learn) progress = mergeProgress(progress, data.learn);
+    migrateReview();
     vocabStats = data.stats || null;
     save();
     render();
@@ -108,11 +117,98 @@ function itemByKey(key) {
   return list[Number(part.slice(1))] || null;
 }
 
-function reviewKeys() {
-  return Object.entries(progress.review)
-    .filter(([k, r]) => (r.miss || 0) > (r.ok || 0) && itemByKey(k))
-    .sort((a, b) => a[1].miss - b[1].miss)
-    .map(([k]) => k);
+// ── Hard sentences ────────────────────────────────────────────────────────────
+// A sentence joins the list when you miss it, need its hint, or save it with ★.
+// Wrong → back tomorrow (and again later in the same session). Right on a new day →
+// 3 days, then 7 days; the third right answer on different days moves it to Mastered.
+const dayKey = t => new Date(t || 0).toDateString();
+const liveHard = key => { const e = progress.hard[key]; return e && !e.removed && itemByKey(key) ? e : null; };
+
+function freshHard(now) {
+  return { added: now, misses: 0, hint: false, saved: false, streak: 0, due: now, last: 0, lastMiss: 0, mastered: false, removed: false };
+}
+
+function patchHard(key, patch) {
+  const now = Date.now();
+  const cur = liveHard(key);
+  const e = Object.assign(cur ? { ...cur } : freshHard(now), patch, { ts: now });
+  progress.hard[key] = e;
+  return e;
+}
+
+function recordHard(it, correct, usedHint) {
+  const now = Date.now();
+  const e = liveHard(it.key);
+  if (!correct) {
+    patchHard(it.key, { misses: (e ? e.misses : 0) + 1, streak: 0, mastered: false, due: now + DAY, lastMiss: now });
+    return;
+  }
+  if (usedHint) {
+    if (!e) patchHard(it.key, { hint: true, due: now + DAY });
+    return;
+  }
+  if (!e || e.mastered) return;
+  const today = dayKey(now);
+  if (today === dayKey(e.last) || today === dayKey(e.lastMiss) || today === dayKey(e.added)) {
+    // Right, but on a day that doesn't count: just make sure it isn't due again today.
+    if (e.due <= now) patchHard(it.key, { due: new Date(now).setHours(24, 0, 0, 0) });
+    return;
+  }
+  const streak = e.streak + 1;
+  patchHard(it.key, { streak, last: now, mastered: streak >= 3, due: now + (streak === 1 ? 3 : 7) * DAY });
+}
+
+function toggleSave(key) {
+  const e = liveHard(key);
+  if (e && e.saved) {
+    if (!e.misses && !e.hint) patchHard(key, { removed: true });
+    else patchHard(key, { saved: false });
+  } else {
+    patchHard(key, { saved: true });
+  }
+  save();
+}
+
+function removeHard(key) {
+  if (liveHard(key)) { patchHard(key, { removed: true }); save(); }
+}
+
+function hardKeys(tab) {
+  const now = Date.now();
+  return Object.keys(progress.hard).filter(k => {
+    const e = liveHard(k);
+    if (!e) return false;
+    if (tab === 'due') return !e.mastered && e.due <= now;
+    if (tab === 'mastered') return e.mastered;
+    if (tab === 'open') return !e.mastered;
+    return true;
+  });
+}
+
+// Mistakes collected before this list existed become hard sentences, due now.
+function migrateReview() {
+  let changed = false;
+  for (const [k, r] of Object.entries(progress.review || {})) {
+    if ((r.miss || 0) > (r.ok || 0) && !progress.hard[k] && itemByKey(k)) {
+      progress.hard[k] = { ...freshHard(r.miss), misses: 1, ts: r.miss };
+      changed = true;
+    }
+  }
+  return changed;
+}
+if (migrateReview()) { try { localStorage.setItem(STORE_KEY, JSON.stringify(progress)); } catch (e) {} }
+
+const sentenceOf = it => it.t === 'gap' ? it.de.replace('___', it.o[0]) : it.de;
+// English meaning without task instructions such as "(start with Morgen)".
+const meaningOf = it => (it.en || '').replace(/\s*\((start with|use)[^)]*\)/i, '').trim();
+
+function hardCardHtml() {
+  const total = hardKeys('all').length;
+  if (!total) return '';
+  const due = hardKeys('due').length;
+  return `<button class="review-card" onclick="go('#hard')">
+      <span style="font-size:22px">\u{1F501}</span>
+      <div><b>My hard sentences</b><span>${due ? due + ' due today' : 'Nothing due today'} \u00B7 ${total} saved in total</span></div></button>`;
 }
 
 function vocabDue() {
@@ -171,7 +267,8 @@ const go = hash => { location.hash = hash; };
 // #lesson/7       learn the concept
 // #practice/7     8 practice items (hints allowed)
 // #check/7        10 check items, 8 needed
-// #review         items you got wrong
+// #hard[/all|/mastered]          your hard sentences
+// #hardpractice[/all|/mastered]  practise them
 let session = null;
 
 function render() {
@@ -181,7 +278,8 @@ function render() {
     go('#path');
     return;
   }
-  if (route !== 'practice' && route !== 'check' && route !== 'review') session = null;
+  if (route === 'review') { go('#hard'); return; }
+  if (route !== 'practice' && route !== 'check' && route !== 'hardpractice') session = null;
   window.scrollTo(0, 0);
   if (route === 'path') return renderPath();
   if (route === 'lesson') return renderLesson(lessonById(id));
@@ -189,9 +287,10 @@ function render() {
     if (!session || session.mode !== route || session.lesson.id !== id) startSession(route, lessonById(id));
     return renderItem();
   }
-  if (route === 'review') {
-    if (!session || session.mode !== 'review') {
-      if (!startReview()) { go('#path'); return; }
+  if (route === 'hard') return renderHard(arg || 'due');
+  if (route === 'hardpractice') {
+    if (!session || session.mode !== 'hard') {
+      if (!startHard(arg || 'due')) { go('#hard'); return; }
     }
     return renderItem();
   }
@@ -204,9 +303,10 @@ function renderHome() {
   const done = passedCount();
   const cur = currentLesson();
   const allDone = done === LESSONS.length;
-  const started = done > 0 || Object.keys(progress.review).length > 0;
+  const started = done > 0 || hardKeys('all').length > 0;
   const due = vocabDue();
   view().innerHTML = `
+    ${hardCardHtml() ? `<div style="margin-bottom:14px">${hardCardHtml()}</div>` : ''}
     <div class="tile">
       <div class="ic" style="background:#E7F3FF">\u{1F9ED}</div>
       <h2>Learn</h2>
@@ -227,15 +327,10 @@ function renderHome() {
 // ── Path ──────────────────────────────────────────────────────────────────────
 function renderPath() {
   const cur = currentLesson();
-  const rev = reviewKeys().length;
   let html = `
     <div class="topbar"><a class="back" href="#">‹ Home</a><span class="pill">${passedCount()} / ${LESSONS.length}</span></div>
     <div class="bar"><i style="width:${Math.round(passedCount() / LESSONS.length * 100)}%"></i></div>`;
-  if (rev) {
-    html += `<button class="review-card" style="margin-top:12px" onclick="go('#review')">
-      <span style="font-size:22px">\u{1F501}</span>
-      <div><b>Review your mistakes</b><span>${rev} sentence${rev === 1 ? '' : 's'} to practise again</span></div></button>`;
-  }
+  if (hardCardHtml()) html += `<div style="margin-top:12px">${hardCardHtml()}</div>`;
   for (const lv of LEVELS) {
     const ls = LESSONS.filter(l => l.level === lv.n);
     const d = ls.filter(l => isPassed(l.id)).length;
@@ -298,11 +393,14 @@ function startSession(mode, lesson) {
   prepareItem();
 }
 
-function startReview() {
-  const keys = reviewKeys().slice(0, REVIEW_SIZE);
+function startHard(tab) {
+  let keys = hardKeys(tab);
+  if (tab === 'due') keys.sort((a, b) => progress.hard[a].due - progress.hard[b].due);
+  else keys = shuffle(keys).sort((a, b) => (progress.hard[a].mastered - progress.hard[b].mastered) || (progress.hard[b].misses - progress.hard[a].misses));
+  keys = keys.slice(0, HARD_SIZE);
   if (!keys.length) return false;
   session = {
-    mode: 'review', lesson: null, idx: 0, results: [],
+    mode: 'hard', tab, lesson: null, idx: 0, results: [],
     items: shuffle(keys.map(k => ({ ...itemByKey(k), key: k }))),
   };
   prepareItem();
@@ -334,8 +432,8 @@ function dotsHtml() {
 function headerHtml() {
   const total = session.items.length;
   const pos = Math.min(session.idx + 1, total);
-  if (session.mode === 'review') {
-    return `<div class="topbar"><a class="back" href="#path">‹ All lessons</a><span class="pill">Review · ${pos} / ${total}</span></div>`;
+  if (session.mode === 'hard') {
+    return `<div class="topbar"><a class="back" href="#hard">‹ Hard sentences</a><span class="pill">${pos} / ${total}</span></div>`;
   }
   const l = session.lesson;
   return `<div class="topbar"><a class="back" href="#lesson/${l.id}">‹ Lesson ${l.id}</a><span class="pill">${pos} / ${total}</span></div>
@@ -388,7 +486,9 @@ function renderItem() {
   else if (it.t === 'build') body += `<button class="btn" id="check-btn" ${st.slot.length === st.pool.length ? '' : 'disabled'}>Check</button>`;
   else if (it.t === 'say') body += `<button class="btn" id="check-btn">Check</button>`;
 
-  view().innerHTML = `${headerHtml()}${dotsHtml()}<div class="card"><span class="badge ${it.t}">${BADGE[it.t]}</span>${body}</div>`;
+  const saved = !!(liveHard(it.key) && liveHard(it.key).saved);
+  const star = `<button class="save-btn ${saved ? 'on' : ''}" id="save-btn" title="Save to My hard sentences">★ ${saved ? 'Saved' : 'Save'}</button>`;
+  view().innerHTML = `${headerHtml()}${dotsHtml()}<div class="card">${star}<span class="badge ${it.t}">${BADGE[it.t]}</span>${body}</div>`;
   wireItem(it);
 }
 
@@ -413,6 +513,7 @@ function wireItem(it) {
   const st = session.state;
   const $ = id => document.getElementById(id);
   if ($('hint-btn')) $('hint-btn').onclick = () => { st.hint = true; renderItem(); };
+  if ($('save-btn')) $('save-btn').onclick = () => { toggleSave(it.key); renderItem(); };
   if ($('next-btn')) { $('next-btn').onclick = nextItem; $('next-btn').focus(); }
   if ($('listen-btn')) $('listen-btn').onclick = () => speak(it.t === 'gap' ? it.de.replace('___', it.o[0]) : it.de);
   if ($('self-right')) $('self-right').onclick = () => { st.selfRate = false; finishItem(true); };
@@ -466,12 +567,9 @@ function finishItem(correct) {
   st.answered = true;
   st.correct = correct;
   session.results[session.idx] = correct;
-  const r = progress.review[it.key] || {};
-  if (correct) {
-    if (r.miss) progress.review[it.key] = { ...r, ok: Date.now() };
-  } else {
-    progress.review[it.key] = { ...r, miss: Date.now() };
-  }
+  recordHard(it, correct, st.hint);
+  // Practice and hard-sentence sessions bring a missed sentence back once at the end.
+  if (!correct && session.mode !== 'check' && !it.again) session.items.push({ ...it, again: true });
   save();
   renderItem();
 }
@@ -493,20 +591,21 @@ document.addEventListener('keydown', e => {
 function renderResults() {
   const score = session.results.filter(Boolean).length;
   const total = session.items.length;
-  const missed = session.items.filter((_, i) => session.results[i] === false);
+  const seen = new Set();
+  const missed = session.items.filter((it, i) => session.results[i] === false && !seen.has(it.key) && seen.add(it.key));
   const missedHtml = missed.length ? `<div class="card"><div class="label">You will see these again</div>
-    ${missed.map(it => `<div class="li">${escapeHtml(it.t === 'gap' ? it.de.replace('___', it.o[0]) : it.de)}${it.en ? `<div class="en">${escapeHtml(it.en)}</div>` : ''}</div>`).join('')}</div>` : '';
+    ${missed.map(it => `<div class="li">${escapeHtml(sentenceOf(it))}${meaningOf(it) ? `<div class="en">${escapeHtml(meaningOf(it))}</div>` : ''}</div>`).join('')}</div>` : '';
 
-  if (session.mode === 'review') {
-    const left = reviewKeys().length;
+  if (session.mode === 'hard') {
+    const left = hardKeys('due').length;
     view().innerHTML = `
-      <div class="topbar"><a class="back" href="#path">‹ All lessons</a><span class="pill">Review</span></div>
+      <div class="topbar"><a class="back" href="#hard">‹ Hard sentences</a><span class="pill">Done</span></div>
       <div class="big pass">${score} / ${total}</div>
-      <p class="center muted" style="font-size:15px">${left ? left + ' still to review' : 'All mistakes cleared'}</p>
+      <p class="center muted" style="font-size:15px">${left ? left + ' still due today' : 'Nothing else due today'}</p>
       ${missedHtml}
-      ${left ? `<button class="btn" id="again-btn">Review again</button>` : ''}
-      <a class="btn ghost" href="#path">Back to the lessons</a>`;
-    if (document.getElementById('again-btn')) document.getElementById('again-btn').onclick = () => { session = null; render(); };
+      ${left ? `<button class="btn" id="again-btn">Practise the ${left} due</button>` : ''}
+      <a class="btn ghost" href="#hard">Back to my hard sentences</a>`;
+    if (document.getElementById('again-btn')) document.getElementById('again-btn').onclick = () => { session = null; go('#hardpractice'); render(); };
     return;
   }
 
@@ -545,6 +644,49 @@ function renderResults() {
     ${!passed ? `<a class="btn" href="#lesson/${l.id}">Read the rule again</a><button class="btn ghost" id="retry-btn">Try the check again</button>` : ''}
     <a class="btn ghost" href="#path">Back to the lessons</a>`;
   if (document.getElementById('retry-btn')) document.getElementById('retry-btn').onclick = () => { session = null; render(); };
+}
+
+// ── My hard sentences ─────────────────────────────────────────────────────────
+function renderHard(tab) {
+  if (!['due', 'all', 'mastered'].includes(tab)) tab = 'due';
+  const counts = { due: hardKeys('due').length, all: hardKeys('all').length, mastered: hardKeys('mastered').length };
+  let keys = hardKeys(tab);
+  if (tab === 'due') keys.sort((a, b) => progress.hard[a].due - progress.hard[b].due);
+  else keys.sort((a, b) => (progress.hard[b].misses - progress.hard[a].misses) || (progress.hard[b].ts - progress.hard[a].ts));
+  const tabs = [['due', 'Due today'], ['all', 'All'], ['mastered', 'Mastered']].map(([t, n]) =>
+    `<a class="${t === tab ? 'on' : ''}" href="#hard/${t}">${n} \u00B7 ${counts[t]}</a>`).join('');
+  const n = keys.length;
+  const practise = {
+    due: n ? `Practise the ${Math.min(n, HARD_SIZE)} due now` : '',
+    all: counts.all - counts.mastered ? `Practise ${Math.min(counts.all, HARD_SIZE)} from the list` : (counts.all ? `Practise ${Math.min(counts.all, HARD_SIZE)} again` : ''),
+    mastered: n ? `Practise ${Math.min(n, HARD_SIZE)} mastered sentences` : '',
+  }[tab];
+  const empty = {
+    due: counts.all ? 'Nothing is due today. Sentences come back when it is time to repeat them.' : 'No sentences yet. A sentence lands here when you miss it, need its hint, or tap \u2605 Save.',
+    all: 'No sentences yet. A sentence lands here when you miss it, need its hint, or tap \u2605 Save.',
+    mastered: 'No mastered sentences yet. Answer a sentence correctly on three different days to master it.',
+  }[tab];
+  const rows = keys.map(k => {
+    const e = progress.hard[k];
+    const it = itemByKey(k);
+    const lesson = k.split('-')[0];
+    const why = e.misses ? `missed ${e.misses}\u00D7` : (e.hint ? 'hint used' : 'saved \u2605');
+    const bars = e.mastered
+      ? '<span class="mastered">Mastered \u2713</span>'
+      : '<span class="lv">' + [0, 1, 2].map(i => `<i class="${i < e.streak ? 'g' : ''}"></i>`).join('') + '</span>';
+    return `<div class="hs">
+      <button class="hs-x" data-remove="${k}" title="Remove from the list" aria-label="Remove">\u2715</button>
+      <div class="de">${escapeHtml(sentenceOf(it))}</div>${meaningOf(it) ? `<div class="en">${escapeHtml(meaningOf(it))}</div>` : ''}
+      <div class="meta"><span class="tag">L${lesson} \u00B7 ${why}${e.saved && e.misses ? ' \u00B7 \u2605' : ''}</span>${bars}</div></div>`;
+  }).join('');
+  view().innerHTML = `
+    <div class="topbar"><a class="back" href="#">\u2039 Home</a><span class="pill">${counts.all} sentence${counts.all === 1 ? '' : 's'}</span></div>
+    <div class="h" style="margin-bottom:4px">My hard sentences</div>
+    <div class="tabs">${tabs}</div>
+    ${practise ? `<a class="btn" style="margin:4px 0 12px" href="#hardpractice/${tab}">${practise}</a>` : ''}
+    ${rows || `<p class="muted center" style="margin:24px 8px">${empty}</p>`}
+    ${rows && tab !== 'mastered' ? '<p class="muted" style="margin-top:8px">Bars: three correct answers on different days and the sentence moves to Mastered.</p>' : ''}`;
+  view().querySelectorAll('[data-remove]').forEach(btn => btn.onclick = () => { removeHard(btn.dataset.remove); renderHard(tab); });
 }
 
 render();
