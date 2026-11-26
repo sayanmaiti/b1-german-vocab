@@ -362,33 +362,18 @@ function pickDifficult() {
   return { word, dir };
 }
 
-// Order: 1) cards that are due, most overdue first; 2) new cards in rank order
-// (high-frequency words first; EN→DE once DE→EN is known); 3) the card due soonest.
-function pickNext() {
-  if (difficultMode) {
-    const d = pickDifficult();
-    if (d) return d;
-  }
-  const now = Date.now();
-  const due = [];
-  const upcoming = [];
-  for (const word of WORDS) {
-    for (const dir of DIRS) {
-      const s = stats[statKey(word.id, dir)];
-      if (!s || !s.attempts) continue;
-      const d = dueTime(s);
-      (d <= now ? due : upcoming).push({ word, dir, d });
-    }
-  }
+// Card order:
+//  1. Missed cards that are due again (you got them wrong; they come back first).
+//  2. Every 4th card, if available: a new card from the current milestone, so a
+//     backlog of reviews never stops you learning.
+//  3. Other due reviews, hardest first: starred words, then the ones you have
+//     found harder (lower ease, shorter interval), then the most overdue.
+//  4. New cards from the current milestone (EN→DE once DE→EN is known).
+//  5. Nothing due and nothing new: missed or starred cards early, else the card
+//     due soonest.
+let cardsSinceNew = 0;
 
-  const notLast = c => statKey(c.word.id, c.dir) !== lastKey;
-
-  if (due.length) {
-    due.sort((a, b) => a.d - b.d);
-    const pool = due.filter(notLast).slice(0, 3);
-    if (pool.length) return pool[Math.floor(Math.random() * pool.length)];
-  }
-
+function findNewCard(now) {
   const maxMilestone = currentMilestone();
   let waitingEnDe = null;               // an EN→DE card still inside its short delay
   for (const word of WORDS) {           // WORDS is sorted by rank
@@ -397,14 +382,69 @@ function pickNext() {
     const deEn = getStat(word.id, 'de-en');
     if (!isSeen(word.id, 'en-de') && deEn.correct > 0) {
       if (now - (deEn.lastSeen || 0) > EN_DE_DELAY) return { word, dir: 'en-de' };
-      if (!waitingEnDe && statKey(word.id, 'en-de') !== lastKey) waitingEnDe = { word, dir: 'en-de' };
+      if (!waitingEnDe && statKey(word.id, 'en-de') !== lastKey) waitingEnDe = { word, dir: 'en-de', waiting: true };
     }
   }
-  // Nothing new and nothing due: rather than stall, take an EN→DE card early.
-  if (waitingEnDe) return waitingEnDe;
+  return waitingEnDe;
+}
 
-  const rest = upcoming.concat(due).filter(notLast).sort((a, b) => a.d - b.d);
-  return rest[0] || due[0] || { word: WORDS[0], dir: 'de-en' };
+// Lower = harder = shown sooner.
+function reviewPriority(c) {
+  const s = getStat(c.word.id, c.dir);
+  return (isStarred(c.word.id) ? -100 : 0) + (s.ease || 2.5) * 10 + Math.min(s.interval || 0, 30);
+}
+
+function pickNext() {
+  if (difficultMode) {
+    const d = pickDifficult();
+    if (d) return d;
+  }
+  const now = Date.now();
+  const relearn = [];   // missed cards, due again
+  const reviews = [];   // other due cards
+  const later   = [];   // not due yet
+  for (const word of WORDS) {
+    for (const dir of DIRS) {
+      const key = statKey(word.id, dir);
+      const s = stats[key];
+      if (!s || !s.attempts || key === lastKey) continue;
+      const c = { word, dir, d: dueTime(s), missed: s.interval === 0 };
+      if (c.d > now) later.push(c);
+      else (c.missed ? relearn : reviews).push(c);
+    }
+  }
+  const pick = c => {
+    cardsSinceNew = c.isNew ? 0 : cardsSinceNew + 1;
+    return c;
+  };
+
+  // 1. Missed cards first, the one missed longest ago first.
+  if (relearn.length) {
+    relearn.sort((a, b) => a.d - b.d);
+    return pick(relearn[0]);
+  }
+
+  // 2. Keep new words coming even when there is a backlog.
+  const fresh = findNewCard(now);
+  if (fresh && !fresh.waiting && reviews.length && cardsSinceNew >= 3) {
+    return pick({ ...fresh, isNew: true });
+  }
+
+  // 3. Due reviews, hardest first (a little randomness among the top three).
+  if (reviews.length) {
+    reviews.sort((a, b) => reviewPriority(a) - reviewPriority(b) || a.d - b.d);
+    const top = reviews.slice(0, 3);
+    return pick(top[Math.floor(Math.random() * top.length)]);
+  }
+
+  // 4. New cards (or an EN→DE card early rather than stalling).
+  if (fresh) return pick({ ...fresh, isNew: !fresh.waiting });
+
+  // 5. Nothing due, nothing new: missed or starred cards early, else the soonest due.
+  const early = later.filter(c => c.missed || isStarred(c.word.id)).sort((a, b) => a.d - b.d);
+  if (early.length) return pick(early[0]);
+  later.sort((a, b) => a.d - b.d);
+  return pick(later[0] || { word: WORDS[0], dir: 'de-en' });
 }
 
 // ── Highlighting the word in its example sentence ─────────────────────────────
