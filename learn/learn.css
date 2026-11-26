@@ -112,3 +112,23 @@ a { color: inherit; }
 .li { font-size: 14px; padding: 8px 0; border-bottom: 1px solid #EEF0F2; }
 .li:last-child { border: 0; }
 .li .en { font-size: 12.5px; color: #65676B; }
+
+/* Save star on each task */
+.save-btn { float: right; font-size: 12.5px; font-weight: 800; color: #65676B; background: #F0F2F5; border: 0; border-radius: 8px; padding: 5px 10px; font-family: inherit; cursor: pointer; }
+.save-btn.on { color: #B35C00; background: #FFF1E0; }
+
+/* My hard sentences */
+.tabs { display: flex; gap: 6px; margin: 10px 0; }
+.tabs a { flex: 1; text-align: center; font-size: 12.5px; font-weight: 800; padding: 8px 4px; border-radius: 9px; background: #E4E6EB; color: #65676B; text-decoration: none; }
+.tabs a.on { background: #1877F2; color: #fff; }
+.hs { position: relative; background: #fff; border-radius: 12px; padding: 11px 36px 10px 12px; margin-bottom: 6px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.hs .de { font-weight: 800; font-size: 15px; }
+.hs .en { font-size: 13px; color: #65676B; }
+.hs .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 11.5px; font-weight: 800; }
+.hs-x { position: absolute; top: 8px; right: 8px; background: none; border: 0; color: #BCC0C4; font-size: 14px; cursor: pointer; padding: 4px; }
+.hs-x:hover { color: #C62828; }
+.tag { color: #B35C00; background: #FFF1E0; padding: 2px 7px; border-radius: 5px; }
+.lv { display: flex; gap: 3px; }
+.lv i { width: 18px; height: 5px; border-radius: 3px; background: #DAE0E8; }
+.lv .g { background: #34A853; }
+.mastered { color: #1E8E3E; }
