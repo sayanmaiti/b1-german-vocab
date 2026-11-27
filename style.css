@@ -890,3 +890,31 @@ h1 {
   height: 22px;
   cursor: pointer;
 }
+
+/* Decks */
+.deck-bar { display: flex; flex-wrap: nowrap; gap: 6px; margin: 0 0 12px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.deck { flex: none; }
+.deck { border: 2px solid #DADDE1; background: #fff; border-radius: 12px; padding: 6px 10px; font-weight: 800; font-size: 13px; color: #1C1E21; font-family: inherit; cursor: pointer; text-align: left; }
+.deck small { display: block; font-size: 10.5px; color: #65676B; font-weight: 700; }
+.deck.on { border-color: #1877F2; background: #1877F2; color: #fff; }
+.deck.on small { color: #D6E6FF; }
+.goal { background: #fff; border-radius: 14px; padding: 10px 14px; margin: 0 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.goal-top { display: flex; justify-content: space-between; align-items: baseline; font-weight: 800; font-size: 13.5px; }
+.goal-top b { font-size: 18px; color: #1877F2; }
+.goal-bar { height: 8px; background: #DAE0E8; border-radius: 6px; margin: 7px 0 5px; overflow: hidden; }
+.goal-bar i { display: block; height: 100%; background: #1877F2; transition: width .3s; }
+.goal-sub { font-size: 12px; color: #65676B; }
+.goal-sub b { color: #1C1E21; }
+.ms-90 { font-size: 10px; font-weight: 900; color: #1E8E3E; background: #E3F5E8; border-radius: 6px; padding: 2px 6px; margin-left: 6px; white-space: nowrap; vertical-align: middle; }
+.ms-goal { margin: 10px 0; padding: 8px 12px; background: #E3F5E8; color: #1E6B34; border-radius: 10px; font-size: 13px; font-weight: 800; text-align: center; }
+/* Tags */
+.tag-row { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; margin: 8px 0 2px; }
+.tag { display: inline-block; font-size: 11px; font-weight: 800; color: #7B2CBF; background: #F1E8FB; border-radius: 6px; padding: 3px 7px; }
+.tag-new { color: #B35C00; background: #FFF1E0; }
+.tag-grey { color: #444; background: #F0F2F5; }
+.ms-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+.ms-tags .tag { font-size: 10px; padding: 1px 5px; }
+.forms-big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0 2px; }
+.forms-big div { background: #F0F2F5; border-radius: 10px; padding: 6px 4px; text-align: center; font-weight: 800; font-size: 15px; color: #1C1E21; }
+.forms-big small { display: block; font-size: 10px; color: #65676B; font-weight: 700; }
+.answer-hint { font-size: 12.5px; color: #65676B; text-align: center; margin: 0 0 8px; }

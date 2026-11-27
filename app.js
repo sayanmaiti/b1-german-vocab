@@ -16,24 +16,87 @@ let currentUser = null;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STORAGE_KEY  = 'b1_vocab_stats';
-const TOTAL_WORDS  = WORDS.length;
 
-// ── Milestones ────────────────────────────────────────────────────────────────
-// The word list is split into groups of 30 by frequency rank
-// (milestone 1 = the 30 most common words). New words come only from the
-// current milestone; the next unlocks once every word in it is done.
-const MILESTONE_SIZE   = 30;
-const MILESTONES = (() => {
+// ── Decks and milestones ──────────────────────────────────────────────────────
+// Words are practised in one deck per word type. Inside a deck, words come in
+// milestones of 30 by exam frequency (rank); prepositions are grouped by case and
+// connectors by word order. New words come only from the deck's current milestone;
+// the next unlocks once every word in it is done. Progress is stored per word, so
+// it doesn't matter in which deck a word was learned.
+const MILESTONE_SIZE = 30;
+const DECKS = [
+  { id: 'verbs',        name: 'Verbs' },
+  { id: 'nouns',        name: 'Nouns' },
+  { id: 'adjectives',   name: 'Adjectives' },
+  { id: 'adverbs',      name: 'Adverbs' },
+  { id: 'prepositions', name: 'Prepositions' },
+  { id: 'connectors',   name: 'Connectors' },
+  { id: 'pronouns',     name: 'Pronouns & articles' },
+  { id: 'numbers',      name: 'Numbers' },
+  { id: 'expressions',  name: 'Expressions' },
+];
+const DECK_NAME = Object.fromEntries(DECKS.map(d => [d.id, d.name]));
+const GROUPS = {
+  prepositions: [
+    ['Akk',     'Accusative',        'für, ohne, durch, gegen, um …'],
+    ['Dativ',   'Dative',            'mit, nach, bei, von, zu, aus, seit …'],
+    ['Wechsel', 'Two-way (Wechsel)', 'where? → Dative · where to? → Accusative'],
+    ['Genitiv', 'Genitive',          'wegen, trotz, während …'],
+  ],
+  connectors: [
+    ['normal', 'Normal word order',    '…, aber ich komme.'],
+    ['next',   'Verb comes next',      '…, deshalb komme ich.'],
+    ['last',   'Verb goes to the end', '…, weil ich komme.'],
+    ['two',    'Two-part connectors',  'entweder … oder, sowohl … als auch …'],
+  ],
+};
+const DECK_WORDS = {};
+for (const d of DECKS) DECK_WORDS[d.id] = WORDS.filter(w => w.deck === d.id);   // WORDS is sorted by rank
+
+function buildMilestones(deckId) {
+  const words = DECK_WORDS[deckId];
+  if (GROUPS[deckId]) {
+    return GROUPS[deckId]
+      .map(([key, name, sub]) => ({ name, sub, words: words.filter(w => (w.group || GROUPS[deckId][0][0]) === key) }))
+      .filter(m => m.words.length)
+      .map(m => ({ ...m, in90: m.words.some(w => w.in90) }));
+  }
+  if (words.length <= MILESTONE_SIZE * 1.5) return [{ name: DECK_NAME[deckId], sub: `${words.length} words`, words, in90: words.some(w => w.in90) }];
   const groups = [];
-  for (let i = 0; i < WORDS.length; i += MILESTONE_SIZE) groups.push(WORDS.slice(i, i + MILESTONE_SIZE));
+  for (let i = 0; i < words.length; i += MILESTONE_SIZE) groups.push(words.slice(i, i + MILESTONE_SIZE));
   // Fold a small remainder into the previous milestone instead of a tiny last one.
   if (groups.length > 1 && groups[groups.length - 1].length <= MILESTONE_SIZE / 2) {
     groups[groups.length - 2] = groups[groups.length - 2].concat(groups.pop());
   }
-  return groups;
-})();
-const MILESTONE_OF = new Map();
-MILESTONES.forEach((group, i) => group.forEach(w => MILESTONE_OF.set(w.id, i)));
+  let pos = 0;
+  return groups.map((g, i) => {
+    const m = { name: `Milestone ${i + 1}`, sub: `words ${pos + 1}–${pos + g.length} of ${words.length}`, words: g, in90: !!g[0].in90 };
+    pos += g.length;
+    return m;
+  });
+}
+const DECK_MS = Object.fromEntries(DECKS.map(d => [d.id, buildMilestones(d.id)]));
+const MILESTONE_OF = new Map();   // word id → index of its milestone inside its deck
+for (const d of DECKS) DECK_MS[d.id].forEach((m, i) => m.words.forEach(w => MILESTONE_OF.set(w.id, i)));
+
+const DECK_KEY = 'b1_vocab_deck';
+let deck = (() => { try { const d = localStorage.getItem(DECK_KEY); return DECK_NAME[d] ? d : 'verbs'; } catch (_) { return 'verbs'; } })();
+const ms = () => DECK_MS[deck];
+const deckWords = () => DECK_WORDS[deck];
+
+function setDeck(id) {
+  if (!DECK_NAME[id] || id === deck) return;
+  deck = id;
+  try { localStorage.setItem(DECK_KEY, id); } catch (_) {}
+  shownMilestone = null;
+  lastKey = null;
+  cardsSinceNew = 0;
+  renderDeckBars();
+  if (location.hash === '#milestones') renderMilestones();
+  updateScoreBar();
+  if (!difficultMode) nextCard();
+}
+
 const ARTICLES     = ['der ', 'die ', 'das ', 'den ', 'dem ', 'des '];
 const DIRS         = ['de-en', 'en-de'];
 const MINUTE       = 60 * 1000;
@@ -287,12 +350,23 @@ function isSeen(wordId, dir) {
   return !!(s && s.attempts > 0);
 }
 
-function countDue(now = Date.now()) {
+function countDue(d = deck, now = Date.now()) {
   let n = 0;
-  for (const s of Object.values(stats)) {
-    if (s.attempts > 0 && dueTime(s) <= now) n++;
+  for (const w of DECK_WORDS[d]) {
+    for (const dir of DIRS) {
+      const s = stats[statKey(w.id, dir)];
+      if (s && s.attempts > 0 && dueTime(s) <= now) n++;
+    }
   }
   return n;
+}
+
+// Share of telc exam text covered by the words you have learned: function words
+// (articles, pronouns …) plus each learned word's share of the exam texts.
+function examCoverage() {
+  let c = 0;
+  for (const w of WORDS) if (w.cov && isWordLearned(w)) c += w.cov;
+  return COVERAGE_BASE + c / 1000;
 }
 
 // A word counts as learned when both directions (DE→EN and EN→DE) have been
@@ -313,16 +387,17 @@ function isWordDone(word) {
   return DIRS.every(dir => getStat(word.id, dir).correct > 0);
 }
 
-function milestoneDone(i) {
-  return MILESTONES[i].filter(isWordDone).length;
+function milestoneDone(i, d = deck) {
+  return DECK_MS[d][i].words.filter(isWordDone).length;
 }
 
 // The first milestone that still has words not done.
-function currentMilestone() {
-  for (let i = 0; i < MILESTONES.length; i++) {
-    if (milestoneDone(i) < MILESTONES[i].length) return i;
+function currentMilestone(d = deck) {
+  const list = DECK_MS[d];
+  for (let i = 0; i < list.length; i++) {
+    if (milestoneDone(i, d) < list[i].words.length) return i;
   }
-  return MILESTONES.length - 1;
+  return list.length - 1;
 }
 
 // ── Difficult words (starred) ─────────────────────────────────────────────────
@@ -376,7 +451,7 @@ let cardsSinceNew = 0;
 function findNewCard(now) {
   const maxMilestone = currentMilestone();
   let waitingEnDe = null;               // an EN→DE card still inside its short delay
-  for (const word of WORDS) {           // WORDS is sorted by rank
+  for (const word of deckWords()) {     // sorted by rank inside the deck
     if (MILESTONE_OF.get(word.id) > maxMilestone) break;   // not unlocked yet
     if (!isSeen(word.id, 'de-en')) return { word, dir: 'de-en' };
     const deEn = getStat(word.id, 'de-en');
@@ -403,7 +478,7 @@ function pickNext() {
   const relearn = [];   // missed cards, due again
   const reviews = [];   // other due cards
   const later   = [];   // not due yet
-  for (const word of WORDS) {
+  for (const word of deckWords()) {
     for (const dir of DIRS) {
       const key = statKey(word.id, dir);
       const s = stats[key];
@@ -444,7 +519,7 @@ function pickNext() {
   const early = later.filter(c => c.missed || isStarred(c.word.id)).sort((a, b) => a.d - b.d);
   if (early.length) return pick(early[0]);
   later.sort((a, b) => a.d - b.d);
-  return pick(later[0] || { word: WORDS[0], dir: 'de-en' });
+  return pick(later[0] || { word: deckWords()[0], dir: 'de-en' });
 }
 
 // ── Highlighting the word in its example sentence ─────────────────────────────
@@ -607,33 +682,62 @@ function updateScoreBar() {
   document.getElementById('session-score').textContent =
     `${sessionCorrect} / ${sessionAttempts} correct`;
 
-  const learned = WORDS.filter(isWordLearned).length;
-
-  // Progress bar shows the current milestone.
+  // Progress bar shows the deck's current milestone.
+  const list   = ms();
   const m      = currentMilestone();
-  const group  = MILESTONES[m];
+  const group  = list[m];
   const done   = milestoneDone(m);
-  const target = group.length;
-  const first  = group[0].rank, last = group[group.length - 1].rank;
-  document.getElementById('milestone-title').textContent =
-    `Milestone ${m + 1} of ${MILESTONES.length} · words ${first}–${last}`;
+  const target = group.words.length;
+  const chunked = !GROUPS[deck] && list.length > 1;
+  document.getElementById('milestone-title').innerHTML =
+    `${escapeHtml(DECK_NAME[deck])} · ` + (chunked ? `Milestone ${m + 1} of ${list.length}` : escapeHtml(group.name)) +
+    (group.in90 ? ' <span class="ms-90">90% SET</span>' : '');
   document.getElementById('progress-bar').style.width = `${Math.min(100, Math.round(done / target * 100))}%`;
   document.getElementById('progress-label').textContent =
-    m === MILESTONES.length - 1 ? `${done} / ${target} done` : `${done} / ${target} done to unlock next`;
+    m === list.length - 1 ? `${done} / ${target} done` : `${done} / ${target} done to unlock next`;
   updateModeChip();
 
   // Celebrate when a new milestone unlocks during this session.
   if (shownMilestone !== null && m > shownMilestone) {
     const banner = document.getElementById('milestone-banner');
-    banner.textContent = `🎉 Milestone ${m} complete! Milestone ${m + 1} (words ${first}–${last}) is unlocked.`;
+    banner.textContent = `🎉 ${list[m - 1].name} complete! ${group.name} is unlocked.`;
     banner.classList.remove('hidden');
     setTimeout(() => banner.classList.add('hidden'), 8000);
   }
   shownMilestone = m;
 
+  renderGoal(document.getElementById('goal'));
+  renderDeckBars();
+  const learned = deckWords().filter(isWordLearned).length;
   document.getElementById('stats-detail').textContent =
-    `${learned.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned · ${countDue()} due for review`;
+    `${DECK_NAME[deck]}: ${learned.toLocaleString('en')} / ${deckWords().length.toLocaleString('en')} learned · ${countDue()} due for review`;
 }
+
+// The 90% goal: how much of the deck's 90% set you know, and how much exam text all your words cover.
+function renderGoal(el) {
+  if (!el) return;
+  const set = deckWords().filter(w => w.in90);
+  const known = set.filter(isWordLearned).length;
+  const cov = examCoverage();
+  el.innerHTML =
+    `<div class="goal-top"><span>${escapeHtml(DECK_NAME[deck])} you know</span><b>${known.toLocaleString('en')} of ${set.length.toLocaleString('en')}</b></div>` +
+    `<div class="goal-bar"><i style="width:${set.length ? Math.round(known / set.length * 100) : 0}%"></i></div>` +
+    `<div class="goal-sub">in the 90% set · all your words cover <b>${Math.round(cov)}%</b> of telc exam text (goal: 90%)</div>`;
+}
+
+// Deck chips at the top of both views.
+function renderDeckBars() {
+  const html = DECKS.map(d => {
+    const due = countDue(d.id);
+    return `<button class="deck${d.id === deck ? ' on' : ''}" data-deck="${d.id}" type="button">${escapeHtml(d.name)}` +
+           `<small>${DECK_WORDS[d.id].length.toLocaleString('en')} words${due ? ` · ${due} due` : ''}</small></button>`;
+  }).join('');
+  document.querySelectorAll('.deck-bar').forEach(el => { el.innerHTML = html; });
+}
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.deck-bar .deck');
+  if (chip) setDeck(chip.dataset.deck);
+});
 
 // ── Milestones page ───────────────────────────────────────────────────────────
 // A list of every milestone; open one to glance at its words, German and English.
@@ -645,7 +749,14 @@ const POS_LABEL = {
   particle: 'particle', interjection: 'interj.', prefix: 'prefix', phrase: 'phrase',
 };
 function posLabel(word) {
-  return word.pos && word.pos !== 'other' ? (POS_LABEL[word.pos] || word.pos) : '';
+  const base = word.pos && word.pos !== 'other' ? (POS_LABEL[word.pos] || word.pos) : '';
+  return word.vtype && word.vtype !== 'regular' ? `${base} · ${word.vtype === 'modal' ? 'modal' : word.vtype}` : base;
+}
+
+// Purple tags (+Dat, auf + Akk, n-decl., separable) and an orange label for words added from the telc exams.
+function tagsHtml(word, cls = 'tag') {
+  return (word.tags || []).map(t => `<span class="${cls}">${escapeHtml(t)}</span>`).join('') +
+         (word.isNew ? `<span class="${cls} tag-new">NEW · from telc exams</span>` : '');
 }
 
 // Case a preposition takes: Akk, Dativ, Wechsel (Akk for movement, Dativ for location) or Genitiv.
@@ -677,6 +788,8 @@ function renderWordRow(w) {
              `<span class="ms-de">${escapeHtml(w.de)}</span>` +
              (pos ? ` <span class="pos-chip">${pos}</span>` : '') +
              (w.case ? ' ' + caseChip(w) : '') +
+             ((w.tags || w.isNew) ? ` <span class="ms-tags">${tagsHtml(w)}</span>` : '') +
+             (w.ndecl ? `<div class="ms-forms">${escapeHtml(w.ndecl)}</div>` : '') +
              forms +
            `</div>` +
            `<div class="ms-en">${escapeHtml(w.en)}</div>` +
@@ -687,7 +800,7 @@ function renderWordRow(w) {
 }
 
 function renderMilestoneWords(i) {
-  return '<div class="ms-words">' + MILESTONES[i].map(renderWordRow).join('') + '</div>';
+  return '<div class="ms-words">' + ms()[i].words.map(renderWordRow).join('') + '</div>';
 }
 
 function updateDifficultCount() {
@@ -708,43 +821,44 @@ function renderDifficult() {
   }
   const groups = new Map();
   for (const w of words) {
-    const m = MILESTONE_OF.get(w.id);
-    if (!groups.has(m)) groups.set(m, []);
-    groups.get(m).push(w);
+    const g = `${DECK_NAME[w.deck]} · ${DECK_MS[w.deck][MILESTONE_OF.get(w.id)].name}`;
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(w);
   }
   head.textContent = `${words.length} difficult word${words.length === 1 ? '' : 's'} from ` +
-    `${groups.size} milestone${groups.size === 1 ? '' : 's'}`;
+    `${groups.size} milestone${groups.size === 1 ? '' : 's'} (all decks)`;
   btn.classList.remove('hidden');
   list.innerHTML = '<div class="ms-item"><div class="ms-words">' +
     [...groups.entries()].map(([m, ws]) =>
-      `<div class="group-label">Milestone ${m + 1}</div>` + ws.map(renderWordRow).join('')
+      `<div class="group-label">${escapeHtml(m)}</div>` + ws.map(renderWordRow).join('')
     ).join('') + '</div></div>';
 }
 
 function renderMilestones() {
   const current = currentMilestone();
-  const learnedAll = WORDS.filter(isWordLearned).length;
-  document.getElementById('ms-summary').textContent =
-    `You're on milestone ${current + 1} of ${MILESTONES.length} · ` +
-    `${learnedAll.toLocaleString('en')} / ${TOTAL_WORDS.toLocaleString('en')} words learned`;
-
+  renderGoal(document.getElementById('ms-summary'));
+  renderDeckBars();
   updateDifficultCount();
   const list = document.getElementById('ms-list');
-  list.innerHTML = MILESTONES.map((group, i) => {
+  const groups = ms();
+  const lastIn90 = groups.reduce((a, g, i) => (g.in90 ? i : a), -1);
+  list.innerHTML = groups.map((group, i) => {
     const done   = milestoneDone(i);
-    const pct    = Math.round(done / group.length * 100);
+    const pct    = Math.round(done / group.words.length * 100);
     const state  = i < current ? 'done' : i === current ? 'current' : 'locked';
     const chip   = { done: 'Done', current: 'Current', locked: 'Locked' }[state];
     return `<details class="ms-item ms-${state}" data-index="${i}"${i === current ? ' open' : ''}>` +
              `<summary>` +
-               `<span class="ms-name">Milestone ${i + 1}</span>` +
-               `<span class="ms-range">words ${group[0].rank}–${group[group.length - 1].rank}</span>` +
+               `<span class="ms-name">${escapeHtml(group.name)}</span>` +
+               `<span class="ms-range">${escapeHtml(group.sub)}</span>` +
+               (group.in90 ? `<span class="ms-90">90% SET</span>` : '') +
                `<span class="ms-chip">${chip}</span>` +
                `<span class="ms-bar"><span style="width:${pct}%"></span></span>` +
-               `<span class="ms-count">${done}/${group.length}</span>` +
+               `<span class="ms-count">${done}/${group.words.length}</span>` +
              `</summary>` +
              `<div class="ms-body">${i === current ? renderMilestoneWords(i) : ''}</div>` +
-           `</details>`;
+           `</details>` +
+           (i === lastIn90 && i < groups.length - 1 ? `<div class="ms-goal">🎯 90% goal for ${escapeHtml(DECK_NAME[deck].toLowerCase())}: up to ${escapeHtml(group.name.toLowerCase())}</div>` : '');
   }).join('');
 
   // Fill a milestone's word list only when it's opened (keeps the page fast).
@@ -863,7 +977,13 @@ function nextCard() {
 
   // Forms are a hint on DE→EN; on EN→DE they would give the answer away.
   const formsEl = document.getElementById('forms');
-  formsEl.textContent = currentDir === 'de-en' && currentWord.forms ? `(${currentWord.forms})` : '';
+  formsEl.innerHTML = currentDir === 'de-en' ? formsHtml(currentWord) : '';
+  const tagEl = document.getElementById('tag-row');
+  tagEl.innerHTML = currentDir === 'de-en' ? tagsHtml(currentWord) : (currentWord.isNew ? tagsHtml({ isNew: true }) : '');
+  tagEl.classList.toggle('hidden', !tagEl.innerHTML);
+  const hint = currentDir === 'en-de' && currentWord.pos === 'noun' ? 'Type it with der, die or das' : '';
+  document.getElementById('answer-hint').textContent = hint;
+  document.getElementById('answer-hint').classList.toggle('hidden', !hint);
   document.getElementById('speak-btn').style.visibility = currentDir === 'de-en' ? 'visible' : 'hidden';
   lastKey = statKey(currentWord.id, currentDir);
   updateStarBtn();
@@ -873,6 +993,17 @@ function nextCard() {
   document.getElementById('answer-input').value = '';
   setPhase('input');
   document.getElementById('answer-input').focus();
+}
+
+// Verbs: three boxes (er/sie/es · Präteritum · Perfekt). Others: the forms in brackets.
+function formsHtml(word) {
+  if (!word.forms) return '';
+  const parts = word.forms.split(',').map(x => x.trim());
+  if (word.pos === 'verb' && parts.length === 3) {
+    const labels = ['er/sie/es', 'Präteritum', 'Perfekt'];
+    return '<div class="forms-big">' + parts.map((f, i) => `<div><small>${labels[i]}</small>${escapeHtml(f)}</div>`).join('') + '</div>';
+  }
+  return escapeHtml(`(${word.forms})`);
 }
 
 function fullGerman(word) {
@@ -915,9 +1046,17 @@ function handleCheck() {
     msgEl.className = 'result-message correct';
     document.getElementById('result-answer').textContent = correctText;
   } else {
-    msgEl.textContent = '✗ Wrong.';
+    const articleOnly = currentDir === 'en-de' && currentWord.pos === 'noun' &&
+      looseDe(stripArticle(input)) === looseDe(stripArticle(currentWord.de));
+    msgEl.textContent = articleOnly ? '✗ Wrong article' : '✗ Wrong.';
     msgEl.className = 'result-message wrong';
-    document.getElementById('result-answer').textContent = `Answer: ${correctText}`;
+    document.getElementById('result-answer').textContent =
+      (articleOnly ? `You wrote: ${input.trim()} · ` : '') + `Answer: ${correctText}`;
+  }
+  if (currentDir === 'en-de' && (currentWord.tags || currentWord.ndecl)) {
+    const tagEl = document.getElementById('tag-row');
+    tagEl.innerHTML = tagsHtml(currentWord) + (currentWord.ndecl ? `<span class="tag tag-grey">${escapeHtml(currentWord.ndecl)}</span>` : '');
+    tagEl.classList.remove('hidden');
   }
   showDetails();
   setPhase('result');
@@ -953,8 +1092,9 @@ document.getElementById('reset-btn').addEventListener('click', () => {
   if (confirm('Reset all progress? This cannot be undone.')) {
     localStorage.removeItem(STORAGE_KEY);
     if (currentUser) {
-      db.collection('users').doc(currentUser.uid).delete()
-        .catch(e => console.warn('Firestore delete failed:', e));
+      // Only the flashcard stats: the same document also holds the Learn app's progress.
+      db.collection('users').doc(currentUser.uid).update({ stats: firebase.firestore.FieldValue.delete() })
+        .catch(e => console.warn('Firestore reset failed:', e));
     }
     stats = {};
     sessionCorrect = 0;
@@ -966,6 +1106,7 @@ document.getElementById('reset-btn').addEventListener('click', () => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 loadStats();
+renderDeckBars();
 updateScoreBar();
 nextCard();
 showView();
