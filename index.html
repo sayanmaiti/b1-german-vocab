@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261126b">
+  <link rel="stylesheet" href="style.css?v=20261127a">
 </head>
 <body>
   <div class="app">
@@ -36,6 +36,8 @@
     <div class="auth-message hidden" id="auth-message" role="alert"></div>
 
     <div id="practice-view">
+    <div class="deck-bar" aria-label="Choose a deck"></div>
+    <div class="goal" id="goal"></div>
     <div class="mode-chip hidden" id="mode-chip">
       <span id="mode-text"></span>
       <button class="mode-exit" id="mode-exit" type="button" aria-label="Stop practising difficult words">✕</button>
@@ -62,9 +64,11 @@
         <button class="speak-btn" id="speak-btn" title="Pronounce German word">&#128266;</button>
       </div>
       <div class="forms" id="forms"></div>
+      <div class="tag-row hidden" id="tag-row"></div>
 
       <!-- Input phase -->
       <div id="input-phase">
+        <div class="answer-hint hidden" id="answer-hint"></div>
         <input
           type="text"
           id="answer-input"
@@ -121,7 +125,8 @@
         <span><i class="ms-key ms-key-new"></i>New</span>
       </div>
       <div id="all-panel">
-        <p class="ms-summary" id="ms-summary"></p>
+        <div class="deck-bar" aria-label="Choose a deck"></div>
+        <div class="goal" id="ms-summary"></div>
         <div class="ms-list" id="ms-list"></div>
       </div>
       <div id="difficult-panel" class="hidden">
@@ -139,7 +144,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-  <script src="words.js?v=20261126b"></script>
-  <script src="app.js?v=20261126b"></script>
+  <script src="words.js?v=20261127a"></script>
+  <script src="app.js?v=20261127a"></script>
 </body>
 </html>
