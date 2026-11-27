@@ -750,7 +750,9 @@ const POS_LABEL = {
 };
 function posLabel(word) {
   const base = word.pos && word.pos !== 'other' ? (POS_LABEL[word.pos] || word.pos) : '';
-  return word.vtype && word.vtype !== 'regular' ? `${base} · ${word.vtype === 'modal' ? 'modal' : word.vtype}` : base;
+  if (!word.vtype || word.vtype === 'regular') return base;
+  const helper = word.vtype === 'modal' && ['sein', 'haben', 'werden'].includes(word.de);
+  return `${base} · ${helper ? 'helper' : word.vtype}`;
 }
 
 // Purple tags (+Dat, auf + Akk, n-decl., separable) and an orange label for words added from the telc exams.
@@ -1060,6 +1062,7 @@ function handleCheck() {
   }
   showDetails();
   setPhase('result');
+  document.getElementById('next-btn').focus({ preventScroll: true });
 }
 
 function handleShowMe() {
@@ -1085,7 +1088,20 @@ document.getElementById('didnt-btn').addEventListener('click', () => handleSelfR
 document.getElementById('next-btn').addEventListener('click', nextCard);
 
 document.getElementById('answer-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') handleCheck();
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.stopPropagation();   // the same Enter must not also trigger "Next"
+    handleCheck();
+  }
+});
+
+// After an answer, Enter goes to the next card (wherever the focus is).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || location.hash) return;
+  if (document.getElementById('result-phase').classList.contains('hidden')) return;
+  if (document.activeElement && document.activeElement.id === 'next-btn') return;   // the button handles it
+  e.preventDefault();
+  nextCard();
 });
 
 document.getElementById('reset-btn').addEventListener('click', () => {
