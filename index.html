@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=20261127a">
+  <link rel="stylesheet" href="style.css?v=20261127b">
 </head>
 <body>
   <div class="app">
@@ -94,16 +94,16 @@
         </div>
       </div>
 
-      <!-- Details: shown with the answer -->
-      <div id="details" class="details hidden">
-        <div class="detail-example" id="detail-example"></div>
-      </div>
-
       <!-- Result phase: after check -->
       <div id="result-phase" class="hidden">
         <div class="result-message" id="result-message"></div>
         <div class="result-answer" id="result-answer"></div>
         <button class="btn-primary" id="next-btn">Next &rarr;</button>
+      </div>
+
+      <!-- Details: shown with the answer, below the buttons so they stay in place -->
+      <div id="details" class="details hidden">
+        <div class="detail-example" id="detail-example"></div>
       </div>
     </div>
 
@@ -144,7 +144,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-  <script src="words.js?v=20261127a"></script>
-  <script src="app.js?v=20261127a"></script>
+  <script src="words.js?v=20261127b"></script>
+  <script src="app.js?v=20261127b"></script>
 </body>
 </html>
